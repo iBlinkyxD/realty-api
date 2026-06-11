@@ -18,13 +18,14 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
+    secure = settings.environment == "production"
     response.set_cookie(
         key="ildr_token",
         value=token,
         httponly=True,
-        samesite="lax",
+        samesite="none" if secure else "lax",
         max_age=TOKEN_EXPIRE_HOURS * 3600,
-        secure=settings.environment == "production",
+        secure=secure,
         domain=settings.cookie_domain or None,
         path="/",
     )
