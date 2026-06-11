@@ -19,7 +19,7 @@ class Listing(Base):
     price = Column(Numeric(12, 2), nullable=False)
     location = Column(Text, nullable=False)
     bedrooms = Column(Integer)
-    bathrooms = Column(Integer)
+    bathrooms = Column(Numeric(3, 1))
     area_sqft = Column(Integer)
     lot_size_sqft = Column(Integer)
     roi = Column(Numeric(5, 2))

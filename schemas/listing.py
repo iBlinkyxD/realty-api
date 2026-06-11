@@ -1,8 +1,10 @@
-from pydantic import BaseModel
-from typing import Optional, List
+from pydantic import BaseModel, Field
+from typing import Annotated, Optional, List
 from decimal import Decimal
 from datetime import datetime
 import uuid
+
+Bathrooms = Annotated[float, Field(ge=0, multiple_of=0.5)]
 
 
 class ListingCreate(BaseModel):
@@ -13,7 +15,7 @@ class ListingCreate(BaseModel):
     price: Decimal
     location: str
     bedrooms: Optional[int] = None
-    bathrooms: Optional[int] = None
+    bathrooms: Optional[Bathrooms] = None
     area_sqft: Optional[int] = None
     lot_size_sqft: Optional[int] = None
     roi: Optional[Decimal] = None
@@ -40,7 +42,7 @@ class ListingUpdate(BaseModel):
     price: Optional[Decimal] = None
     location: Optional[str] = None
     bedrooms: Optional[int] = None
-    bathrooms: Optional[int] = None
+    bathrooms: Optional[Bathrooms] = None
     area_sqft: Optional[int] = None
     lot_size_sqft: Optional[int] = None
     roi: Optional[Decimal] = None
@@ -68,7 +70,7 @@ class ListingResponse(BaseModel):
     price: Decimal
     location: str
     bedrooms: Optional[int]
-    bathrooms: Optional[int]
+    bathrooms: Optional[float]
     area_sqft: Optional[int]
     lot_size_sqft: Optional[int]
     roi: Optional[Decimal]
