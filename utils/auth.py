@@ -1,7 +1,7 @@
 from typing import Optional
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
-from jose import jwt, JWTError
+import jwt
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -15,7 +15,7 @@ def _decode_token(token: str) -> Optional[str]:
     try:
         payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
         return payload.get("sub")
-    except JWTError:
+    except jwt.PyJWTError:
         return None
 
 

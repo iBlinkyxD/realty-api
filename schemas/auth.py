@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional
 import uuid
 
@@ -6,13 +6,13 @@ import uuid
 class RegisterRequest(BaseModel):
     display_name: str
     email: EmailStr
-    password: str
+    password: str = Field(min_length=8, max_length=128)
     phone: Optional[str] = None
 
 
 class LoginRequest(BaseModel):
     email: EmailStr
-    password: str
+    password: str = Field(min_length=1, max_length=128)
 
 
 class RegisterResponse(BaseModel):
@@ -30,6 +30,4 @@ class ResendCodeRequest(BaseModel):
 
 
 class TokenResponse(BaseModel):
-    access_token: str
-    token_type: str = "bearer"
     expires_in: int = 3600

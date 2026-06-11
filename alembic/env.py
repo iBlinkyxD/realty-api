@@ -4,10 +4,7 @@ from alembic import context
 
 from config import settings
 from database import Base
-import models.user
-import models.listing
-import models.upgrade_request
-import models.inquiry
+import models  # registers all models with Base.metadata
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)

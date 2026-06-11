@@ -26,6 +26,8 @@ class ListingCreate(BaseModel):
     year_built: Optional[int] = None
     features: Optional[List[str]] = None
     maps_url: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     tag: Optional[str] = None
     images: Optional[List[str]] = None
 
@@ -51,6 +53,8 @@ class ListingUpdate(BaseModel):
     year_built: Optional[int] = None
     features: Optional[List[str]] = None
     maps_url: Optional[str] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     tag: Optional[str] = None
     images: Optional[List[str]] = None
 
@@ -77,10 +81,15 @@ class ListingResponse(BaseModel):
     year_built: Optional[int]
     features: List[str]
     maps_url: Optional[str]
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     tag: Optional[str]
     images: List[str]
     status: str
     rejection_reason: Optional[str] = None
+    view_count: int = 0
+    leads_count: int = 0
+    updated_at: Optional[datetime] = None
     submitted_by: uuid.UUID
     submitted_by_name: Optional[str] = None
     submitted_by_email: Optional[str] = None

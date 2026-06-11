@@ -1,6 +1,6 @@
 import hmac
 from datetime import datetime, timedelta, timezone
-from fastapi import APIRouter, Depends, HTTPException, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from sqlalchemy.orm import Session
 
 from config import settings
@@ -12,6 +12,7 @@ from utils.jwt import create_access_token, TOKEN_EXPIRE_HOURS
 from utils.verification import generate_verification_code
 from utils.email import send_verification_email, CODE_EXPIRE_MINUTES
 from utils.auth import get_current_user
+from utils.limiter import limiter
 
 router = APIRouter(prefix="/auth", tags=["auth"])
 
@@ -30,7 +31,8 @@ def _set_auth_cookie(response: Response, token: str) -> None:
 
 
 @router.post("/register", response_model=RegisterResponse, status_code=201)
-def register(body: RegisterRequest, db: Session = Depends(get_db)):
+@limiter.limit("3/minute")
+def register(request: Request, body: RegisterRequest, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == body.email).first():
         raise HTTPException(status_code=409, detail="Email already registered")
 
@@ -70,12 +72,13 @@ def verify_email(body: VerifyRequest, response: Response, db: Session = Depends(
         raise HTTPException(status_code=429, detail="Too many attempts — request a new code")
     if not user.verification_code:
         raise HTTPException(status_code=400, detail="No verification code on file — request a new one")
+    # Check expiry before comparing the code
+    if user.verification_code_expires_at and user.verification_code_expires_at < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Verification code has expired")
     if not hmac.compare_digest(user.verification_code, body.code):
         user.verification_attempts += 1
         db.commit()
         raise HTTPException(status_code=400, detail="Invalid verification code")
-    if user.verification_code_expires_at and user.verification_code_expires_at < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Verification code has expired")
 
     user.email_verified = True
     user.verification_code = None
@@ -86,7 +89,7 @@ def verify_email(body: VerifyRequest, response: Response, db: Session = Depends(
 
     token = create_access_token(user)
     _set_auth_cookie(response, token)
-    return TokenResponse(access_token=token, expires_in=TOKEN_EXPIRE_HOURS * 3600)
+    return TokenResponse(expires_in=TOKEN_EXPIRE_HOURS * 3600)
 
 
 @router.post("/resend-code", status_code=200)
@@ -113,7 +116,8 @@ def resend_code(body: ResendCodeRequest, db: Session = Depends(get_db)):
 
 
 @router.post("/login", response_model=TokenResponse)
-def login(body: LoginRequest, response: Response, db: Session = Depends(get_db)):
+@limiter.limit("10/minute")
+def login(request: Request, body: LoginRequest, response: Response, db: Session = Depends(get_db)):
     user = db.query(User).filter(User.email == body.email).first()
     if not user or not verify_password(body.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
@@ -124,7 +128,7 @@ def login(body: LoginRequest, response: Response, db: Session = Depends(get_db))
 
     token = create_access_token(user)
     _set_auth_cookie(response, token)
-    return TokenResponse(access_token=token, expires_in=TOKEN_EXPIRE_HOURS * 3600)
+    return TokenResponse(expires_in=TOKEN_EXPIRE_HOURS * 3600)
 
 
 @router.get("/me")
