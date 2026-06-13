@@ -33,5 +33,6 @@ class BookingResponse(BaseModel):
     notes: Optional[str] = None
     status: str
     created_at: datetime
+    guest_name: Optional[str] = None
 
     model_config = {"from_attributes": True}

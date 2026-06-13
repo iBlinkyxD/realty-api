@@ -1,6 +1,6 @@
 import logging
 import filetype
-from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from typing import List
@@ -14,23 +14,28 @@ from models.listing import Listing
 from models.listing_edit import ListingEdit
 from models.inquiry import Inquiry
 from models.user import User
+from models.deal_request import DealRequest
 from schemas.listing import ListingCreate, ListingUpdate, ListingResponse
+from schemas.deal_request import DealRequestCreate
 from utils.auth import get_current_user
 from utils.permission import require_role
 from utils.storage import upload_image
+from utils.limiter import limiter
 
 router = APIRouter(prefix="/listings", tags=["listings"])
 
 
 ALLOWED_TYPES = {"image/jpeg", "image/jpg", "image/png", "image/webp", "image/heic"}
-MAX_FILE_SIZE = 25 * 1024 * 1024  # 25 MB
+MAX_FILE_SIZE = 20 * 1024 * 1024  # 20 MB
 MAX_FILES = 25
 
 
 @router.post("/upload-images")
+@limiter.limit("20/minute")
 async def upload_images(
+    request: Request,
     files: List[UploadFile] = File(...),
-    user=Depends(require_role("realtor", "admin")),
+    user=Depends(require_role("realtor", "owner", "admin")),
 ):
     if len(files) > MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_FILES} images allowed")
@@ -39,7 +44,7 @@ async def upload_images(
     for f in files:
         data = await f.read()
         if len(data) > MAX_FILE_SIZE:
-            raise HTTPException(status_code=413, detail=f"{f.filename} exceeds 25 MB limit")
+            raise HTTPException(status_code=413, detail=f"{f.filename} exceeds 20 MB limit")
         detected = filetype.guess(data[:2048])
         if detected is None or detected.mime not in ALLOWED_TYPES:
             raise HTTPException(status_code=415, detail="Invalid file type")
@@ -54,12 +59,12 @@ async def upload_images(
 
 
 @router.get("", response_model=List[ListingResponse])
-def get_active_listings(db: Session = Depends(get_db)):
-    return db.query(Listing).filter(Listing.status == "active").all()
+def get_active_listings(skip: int = 0, limit: int = Query(200, le=200), db: Session = Depends(get_db)):
+    return db.query(Listing).filter(Listing.status == "active").order_by(Listing.created_at.desc()).offset(skip).limit(limit).all()
 
 
 @router.get("/mine", response_model=List[ListingResponse])
-def get_my_listings(user=Depends(require_role("realtor")), db: Session = Depends(get_db)):
+def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session = Depends(get_db)):
     leads_subq = (
         db.query(Inquiry.listing_id, func.count(Inquiry.id).label("cnt"))
         .group_by(Inquiry.listing_id)
@@ -71,17 +76,39 @@ def get_my_listings(user=Depends(require_role("realtor")), db: Session = Depends
         .filter(Listing.submitted_by == user.id)
         .all()
     )
+    pending_deal_ids = {
+        r.listing_id
+        for r in db.query(DealRequest.listing_id)
+        .filter(DealRequest.requested_by == user.id, DealRequest.status == "pending")
+        .all()
+    }
+    pending_edit_ids = {
+        r.listing_id
+        for r in db.query(ListingEdit.listing_id)
+        .filter(ListingEdit.submitted_by == user.id, ListingEdit.status == "pending")
+        .all()
+    }
     return [
         ListingResponse(
             **{c.key: getattr(l, c.key) for c in Listing.__table__.columns},
             leads_count=cnt or 0,
+            has_pending_deal_request=l.id in pending_deal_ids,
+            has_pending_edit=l.id in pending_edit_ids,
         )
         for l, cnt in rows
     ]
 
 
+@router.get("/deal", response_model=ListingResponse)
+def get_deal_listing(db: Session = Depends(get_db)):
+    listing = db.query(Listing).filter(Listing.is_deal == True, Listing.status == "active").first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="No active deal")
+    return listing
+
+
 @router.post("", response_model=ListingResponse, status_code=201)
-def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "admin")), db: Session = Depends(get_db)):
+def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "owner", "admin")), db: Session = Depends(get_db)):
     listing = Listing(
         **body.model_dump(),
         submitted_by=user.id,
@@ -107,12 +134,46 @@ def get_listing(listing_id: UUID, db: Session = Depends(get_db)):
     return ListingResponse(
         **{c.key: getattr(listing, c.key) for c in Listing.__table__.columns},
         submitted_by_name=submitter.display_name,
-        submitted_by_email=submitter.email,
     )
 
 
+@router.post("/{listing_id}/deal-request", status_code=201)
+def submit_deal_request(
+    listing_id: UUID,
+    body: DealRequestCreate,
+    user=Depends(require_role("realtor", "owner")),
+    db: Session = Depends(get_db),
+):
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.submitted_by != user.id:
+        raise HTTPException(status_code=403, detail="Not your listing")
+    if listing.status != "active":
+        raise HTTPException(status_code=400, detail="Listing must be active to submit a deal request")
+    if listing.is_deal:
+        raise HTTPException(status_code=409, detail="Listing is already the deal of the week")
+    existing = db.query(DealRequest).filter(
+        DealRequest.listing_id == listing_id,
+        DealRequest.requested_by == user.id,
+        DealRequest.status == "pending",
+    ).first()
+    if existing:
+        raise HTTPException(status_code=409, detail="You already have a pending deal request for this listing")
+    db.add(DealRequest(
+        listing_id=listing_id,
+        requested_by=user.id,
+        discount_value=body.discount_value,
+        discount_type=body.discount_type,
+        message=body.message,
+    ))
+    db.commit()
+    return {"message": "Deal request submitted successfully"}
+
+
 @router.post("/{listing_id}/view", status_code=204)
-def record_view(listing_id: UUID, db: Session = Depends(get_db)):
+@limiter.limit("5/minute")
+def record_view(request: Request, listing_id: UUID, db: Session = Depends(get_db)):
     listing = db.query(Listing).filter(Listing.id == listing_id, Listing.status == "active").first()
     if listing:
         listing.view_count += 1

@@ -72,3 +72,57 @@ def get_my_inquiries(
         )
         for inq, listing in rows
     ]
+
+
+@router.get("/for-realtor", response_model=List[InquiryResponse])
+def get_inquiries_for_realtor(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(Inquiry, Listing)
+        .join(Listing, Listing.id == Inquiry.listing_id)
+        .filter(Listing.submitted_by == user.id)
+        .order_by(Inquiry.created_at.desc())
+        .all()
+    )
+    return [
+        InquiryResponse(
+            id=str(inq.id),
+            listing_id=str(inq.listing_id) if inq.listing_id else None,
+            listing_title=listing.title if listing else None,
+            name=inq.name,
+            email=inq.email,
+            phone=inq.phone,
+            message=inq.message,
+            created_at=inq.created_at,
+        )
+        for inq, listing in rows
+    ]
+
+
+@router.get("/for-owner", response_model=List[InquiryResponse])
+def get_inquiries_for_owner(
+    user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    rows = (
+        db.query(Inquiry, Listing)
+        .join(Listing, Listing.id == Inquiry.listing_id)
+        .filter(Listing.owner_id == user.id)
+        .order_by(Inquiry.created_at.desc())
+        .all()
+    )
+    return [
+        InquiryResponse(
+            id=str(inq.id),
+            listing_id=str(inq.listing_id) if inq.listing_id else None,
+            listing_title=listing.title if listing else None,
+            name=inq.name,
+            email=inq.email,
+            phone=inq.phone,
+            message=inq.message,
+            created_at=inq.created_at,
+        )
+        for inq, listing in rows
+    ]

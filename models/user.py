@@ -1,6 +1,6 @@
 import uuid
 import sqlalchemy
-from sqlalchemy import Column, Text, Boolean, Enum as SAEnum, TIMESTAMP, func
+from sqlalchemy import Column, Text, Boolean, Integer, Enum as SAEnum, TIMESTAMP, func
 from sqlalchemy.dialects.postgresql import UUID
 from database import Base
 
@@ -12,8 +12,12 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    # Human-readable sequential ID assigned by DB sequence on insert; never null after migration
+    user_code = Column(Integer, nullable=True, unique=True)
     email = Column(Text, nullable=False, unique=True)
-    password_hash = Column(Text, nullable=False)
+    password_hash = Column(Text, nullable=True)
+    google_id = Column(Text, nullable=True, unique=True)
+    avatar_url = Column(Text, nullable=True)
     role = Column(user_role, nullable=False, server_default="buyer")
     status = Column(user_status, nullable=False, server_default="active")
     display_name = Column(Text, nullable=False)

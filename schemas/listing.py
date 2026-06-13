@@ -89,8 +89,14 @@ class ListingResponse(BaseModel):
     images: List[str]
     status: str
     rejection_reason: Optional[str] = None
+    is_deal: bool = False
+    deal_discount_value: Optional[Decimal] = None
+    deal_discount_type: str = 'pct'
     view_count: int = 0
     leads_count: int = 0
+    has_pending_deal_request: bool = False
+    has_pending_edit: bool = False
+    created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     submitted_by: uuid.UUID
     submitted_by_name: Optional[str] = None

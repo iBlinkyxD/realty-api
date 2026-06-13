@@ -27,6 +27,8 @@ class UpgradeRequestAdminResponse(BaseModel):
     status: str
     rejection_reason: Optional[str]
     created_at: datetime
+    reviewed_by_name: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
 

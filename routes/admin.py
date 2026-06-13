@@ -1,26 +1,36 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 from typing import List, Optional
 from uuid import UUID
 
 from config import settings
 from database import get_db
+from models.activity_log import ActivityLog
 from models.upgrade_request import UpgradeRequest
 from models.listing import Listing
 from models.listing_edit import ListingEdit
 from models.user import User
+from models.deal_request import DealRequest
+from schemas.auth import CreateAdminUserBody
 from schemas.upgrade_request import UpgradeRequestAdminResponse, AdminRejectBody as UpgradeRejectBody
 from schemas.listing import ListingResponse, AdminListingResponse, AdminRejectBody as ListingRejectBody
+from schemas.deal_request import DealRequestResponse, DealRequestRejectBody
 from schemas.listing_edit import ListingEditResponse, ListingEditRejectBody
 from utils.permission import require_admin
+from utils.security import hash_password
 from utils.email import (
     send_listing_approved_email,
     send_listing_rejected_email,
     send_upgrade_approved_email,
     send_upgrade_rejected_email,
 )
+
+
+def _log(db: Session, event_type: str, description: str, actor_id=None):
+    db.add(ActivityLog(event_type=event_type, description=description, actor_id=actor_id))
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -29,7 +39,12 @@ router = APIRouter(prefix="/admin", tags=["admin"])
 
 @router.get("/upgrade-requests", response_model=List[UpgradeRequestAdminResponse])
 def list_upgrade_requests(status: Optional[str] = Query(None), user=Depends(require_admin), db: Session = Depends(get_db)):
-    q = db.query(UpgradeRequest, User).join(User, User.id == UpgradeRequest.user_id)
+    Reviewer = aliased(User)
+    q = (
+        db.query(UpgradeRequest, User, Reviewer)
+        .join(User, User.id == UpgradeRequest.user_id)
+        .outerjoin(Reviewer, Reviewer.id == UpgradeRequest.reviewed_by)
+    )
     if status:
         q = q.filter(UpgradeRequest.status == status)
     rows = q.order_by(UpgradeRequest.created_at.desc()).all()
@@ -43,8 +58,10 @@ def list_upgrade_requests(status: Optional[str] = Query(None), user=Depends(requ
             status=req.status,
             rejection_reason=req.rejection_reason,
             created_at=req.created_at,
+            reviewed_by_name=reviewer.display_name or reviewer.email if reviewer else None,
+            reviewed_at=req.reviewed_at,
         )
-        for req, u in rows
+        for req, u, reviewer in rows
     ]
 
 
@@ -64,6 +81,9 @@ def approve_upgrade_request(req_id: UUID, user=Depends(require_admin), db: Sessi
     if target_user:
         target_user.role = req.requested_role
 
+    role_label = req.requested_role.capitalize()
+    name = target_user.display_name or target_user.email if target_user else str(req.user_id)
+    _log(db, "upgrade_approved", f"New {role_label} approved: {name}", actor_id=user.id)
     db.commit()
     if target_user:
         try:
@@ -84,8 +104,10 @@ def reject_upgrade_request(req_id: UUID, body: UpgradeRejectBody, user=Depends(r
     req.reviewed_by = user.id
     req.reviewed_at = datetime.now(timezone.utc)
     req.rejection_reason = body.reason
-    db.commit()
     target_user = db.query(User).filter(User.id == req.user_id).first()
+    name = target_user.display_name or target_user.email if target_user else str(req.user_id)
+    _log(db, "upgrade_rejected", f"Upgrade request rejected: {name}", actor_id=user.id)
+    db.commit()
     if target_user:
         try:
             send_upgrade_rejected_email(target_user.email, target_user.display_name or target_user.email, body.reason)
@@ -131,6 +153,7 @@ def approve_listing(listing_id: UUID, user=Depends(require_admin), db: Session =
     listing.status = "active"
     listing.approved_by = user.id
     listing.approved_at = datetime.now(timezone.utc)
+    _log(db, "listing_approved", f"Listing approved: {listing.title}", actor_id=user.id)
     db.commit()
     submitter = db.query(User).filter(User.id == listing.submitted_by).first()
     if submitter:
@@ -149,6 +172,7 @@ def archive_listing(listing_id: UUID, user=Depends(require_admin), db: Session =
     listing.status = "archived"
     listing.approved_by = user.id
     listing.approved_at = datetime.now(timezone.utc)
+    _log(db, "listing_archived", f"Listing archived: {listing.title}", actor_id=user.id)
     db.commit()
 
 
@@ -161,6 +185,7 @@ def reject_listing(listing_id: UUID, body: ListingRejectBody, user=Depends(requi
     listing.rejection_reason = body.reason
     listing.approved_by = user.id
     listing.approved_at = datetime.now(timezone.utc)
+    _log(db, "listing_rejected", f"Listing rejected: {listing.title}", actor_id=user.id)
     db.commit()
     submitter = db.query(User).filter(User.id == listing.submitted_by).first()
     if submitter:
@@ -242,6 +267,7 @@ def approve_listing_edit(edit_id: UUID, user=Depends(require_admin), db: Session
     edit.status = "approved"
     edit.reviewed_by = user.id
     edit.reviewed_at = datetime.now(timezone.utc)
+    _log(db, "edit_approved", f"Listing edit approved: {listing.title}", actor_id=user.id)
     db.commit()
 
 
@@ -257,19 +283,213 @@ def reject_listing_edit(edit_id: UUID, body: ListingEditRejectBody, user=Depends
     edit.reviewed_by = user.id
     edit.reviewed_at = datetime.now(timezone.utc)
     edit.rejection_reason = body.reason
+    _log(db, "edit_rejected", f"Listing edit rejected", actor_id=user.id)
     db.commit()
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
 
+_VALID_ROLES    = {'buyer', 'owner', 'realtor', 'admin'}
+_VALID_STATUSES = {'active', 'suspended'}
+
+
 @router.get("/users")
 def list_users(role: Optional[str] = Query(None), status: Optional[str] = Query(None), user=Depends(require_admin), db: Session = Depends(get_db)):
+    if role and role not in _VALID_ROLES:
+        raise HTTPException(status_code=422, detail="Invalid role")
+    if status and status not in _VALID_STATUSES:
+        raise HTTPException(status_code=422, detail="Invalid status")
     q = db.query(User)
     if role:
         q = q.filter(User.role == role)
     if status:
         q = q.filter(User.status == status)
     return [
-        {"id": str(u.id), "email": u.email, "role": u.role, "status": u.status, "display_name": u.display_name, "created_at": u.created_at}
+        {
+            "id": str(u.id), "user_code": u.user_code,
+            "email": u.email, "role": u.role, "status": u.status,
+            "display_name": u.display_name, "phone": u.phone,
+            "created_at": u.created_at, "avatar_url": u.avatar_url,
+        }
         for u in q.order_by(User.created_at.desc()).all()
+    ]
+
+
+_CREATEABLE_ROLES = {'buyer', 'owner', 'realtor'}
+
+@router.post("/users", status_code=201)
+def create_user(body: CreateAdminUserBody, admin=Depends(require_admin), db: Session = Depends(get_db)):
+    if body.role not in _CREATEABLE_ROLES:
+        raise HTTPException(status_code=422, detail="Invalid role")
+    if db.query(User).filter(User.email == body.email).first():
+        raise HTTPException(status_code=409, detail="Email already registered")
+    new_user = User(
+        email=body.email,
+        password_hash=hash_password(body.password),
+        display_name=body.display_name,
+        role=body.role,
+        status="active",
+        email_verified=True,
+    )
+    db.add(new_user)
+    _log(db, "user_created", f"New user created: {body.display_name or body.email}", actor_id=admin.id)
+    db.commit()
+    db.refresh(new_user)
+    return {
+        "id": str(new_user.id), "user_code": new_user.user_code,
+        "email": new_user.email, "role": new_user.role, "status": new_user.status,
+        "display_name": new_user.display_name, "phone": new_user.phone,
+        "created_at": new_user.created_at, "avatar_url": None,
+    }
+
+
+@router.put("/users/{user_id}/suspend", status_code=204)
+def suspend_user(user_id: str, user=Depends(require_admin), db: Session = Depends(get_db)):
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if str(target.id) == str(user.id):
+        raise HTTPException(status_code=400, detail="You cannot suspend your own account")
+    target.status = "suspended"
+    db.commit()
+
+
+@router.put("/users/{user_id}/unsuspend", status_code=204)
+def unsuspend_user(user_id: str, user=Depends(require_admin), db: Session = Depends(get_db)):
+    target = db.query(User).filter(User.id == user_id).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    target.status = "active"
+    db.commit()
+
+
+# ── Stats ─────────────────────────────────────────────────────────────────────
+
+@router.get("/stats")
+def get_admin_stats(user=Depends(require_admin), db: Session = Depends(get_db)):
+    active_listings  = db.query(func.count(Listing.id)).filter(Listing.status == "active").scalar() or 0
+    pending_listings = db.query(func.count(Listing.id)).filter(Listing.status == "pending_approval").scalar() or 0
+    total_users      = db.query(func.count(User.id)).scalar() or 0
+    return {
+        "active_listings": active_listings,
+        "pending_listings": pending_listings,
+        "total_users": total_users,
+    }
+
+
+# ── Activity Log ──────────────────────────────────────────────────────────────
+
+# ── Deal Requests ─────────────────────────────────────────────────────────────
+
+@router.get("/deal-requests", response_model=List[DealRequestResponse])
+def list_deal_requests(status: Optional[str] = Query(None), user=Depends(require_admin), db: Session = Depends(get_db)):
+    Requester = aliased(User)
+    Reviewer  = aliased(User)
+    q = (
+        db.query(DealRequest, Listing, Requester, Reviewer)
+        .join(Listing,   Listing.id   == DealRequest.listing_id)
+        .join(Requester, Requester.id == DealRequest.requested_by)
+        .outerjoin(Reviewer, Reviewer.id == DealRequest.reviewed_by)
+    )
+    if status:
+        q = q.filter(DealRequest.status == status)
+    rows = q.order_by(DealRequest.created_at.desc()).all()
+    return [
+        DealRequestResponse(
+            id=req.id,
+            listing_id=req.listing_id,
+            listing_title=listing.title,
+            listing_location=listing.location,
+            listing_thumbnail=listing.images[0] if listing.images else None,
+            requested_by_name=requester.display_name,
+            requested_by_email=requester.email,
+            discount_value=float(req.discount_value),
+            discount_type=req.discount_type,
+            message=req.message,
+            status=req.status,
+            rejection_reason=req.rejection_reason,
+            reviewed_by_name=reviewer.display_name or reviewer.email if reviewer else None,
+            reviewed_at=req.reviewed_at,
+            created_at=req.created_at,
+        )
+        for req, listing, requester, reviewer in rows
+    ]
+
+
+@router.post("/deal-requests/{req_id}/approve", status_code=204)
+def approve_deal_request(req_id: UUID, user=Depends(require_admin), db: Session = Depends(get_db)):
+    req = db.query(DealRequest).filter(DealRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Deal request not found")
+    if req.status != "pending":
+        raise HTTPException(status_code=409, detail="Request already reviewed")
+
+    listing = db.query(Listing).filter(Listing.id == req.listing_id).first()
+    if not listing or listing.status != "active":
+        raise HTTPException(status_code=400, detail="Listing is no longer active")
+
+    # Clear any existing deal
+    db.query(Listing).filter(Listing.is_deal == True).update(
+        {"is_deal": False, "deal_discount_value": None}, synchronize_session=False
+    )
+
+    listing.is_deal = True
+    listing.deal_discount_value = req.discount_value
+    listing.deal_discount_type = req.discount_type
+
+    req.status = "approved"
+    req.reviewed_by = user.id
+    req.reviewed_at = datetime.now(timezone.utc)
+
+    discount_label = f"−{req.discount_value}%" if req.discount_type == "pct" else f"−${req.discount_value:,.0f}"
+    _log(db, "deal_approved", f"Deal of the Week set: {listing.title} ({discount_label})", actor_id=user.id)
+    db.commit()
+
+
+@router.post("/deal-requests/{req_id}/reject", status_code=204)
+def reject_deal_request(req_id: UUID, body: DealRequestRejectBody, user=Depends(require_admin), db: Session = Depends(get_db)):
+    req = db.query(DealRequest).filter(DealRequest.id == req_id).first()
+    if not req:
+        raise HTTPException(status_code=404, detail="Deal request not found")
+    if req.status != "pending":
+        raise HTTPException(status_code=409, detail="Request already reviewed")
+
+    req.status = "rejected"
+    req.rejection_reason = body.reason
+    req.reviewed_by = user.id
+    req.reviewed_at = datetime.now(timezone.utc)
+
+    listing = db.query(Listing).filter(Listing.id == req.listing_id).first()
+    _log(db, "deal_rejected", f"Deal request rejected: {listing.title if listing else req.listing_id}", actor_id=user.id)
+    db.commit()
+
+
+@router.post("/listings/{listing_id}/clear-deal", status_code=204)
+def clear_listing_deal(listing_id: UUID, user=Depends(require_admin), db: Session = Depends(get_db)):
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    listing.is_deal = False
+    listing.deal_discount_value = None
+    listing.deal_discount_type = 'pct'
+    _log(db, "deal_cleared", f"Deal of the Week cleared: {listing.title}", actor_id=user.id)
+    db.commit()
+
+
+@router.get("/activity-log")
+def get_activity_log(limit: int = Query(20, le=50), user=Depends(require_admin), db: Session = Depends(get_db)):
+    entries = (
+        db.query(ActivityLog)
+        .order_by(ActivityLog.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return [
+        {
+            "id": str(e.id),
+            "event_type": e.event_type,
+            "description": e.description,
+            "created_at": e.created_at,
+        }
+        for e in entries
     ]
