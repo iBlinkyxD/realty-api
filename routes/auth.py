@@ -251,6 +251,38 @@ def set_password(request: Request, body: SetPasswordRequest, user: User = Depend
     return {"message": "Password set"}
 
 
+@router.post("/link-google", status_code=200)
+def link_google(body: GoogleAuthRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    if user.google_id:
+        raise HTTPException(status_code=400, detail="A Google account is already linked")
+
+    req = urllib.request.Request(
+        "https://www.googleapis.com/oauth2/v3/userinfo",
+        headers={"Authorization": f"Bearer {body.access_token}"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            info = json.loads(resp.read())
+    except urllib.error.HTTPError:
+        raise HTTPException(status_code=401, detail="Invalid Google token")
+    except Exception:
+        raise HTTPException(status_code=502, detail="Could not reach Google — try again")
+
+    google_id = info.get("sub")
+    if not google_id:
+        raise HTTPException(status_code=401, detail="Google did not return required user info")
+    if not info.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Google account email is not verified")
+
+    conflict = db.query(User).filter(User.google_id == google_id, User.id != user.id).first()
+    if conflict:
+        raise HTTPException(status_code=409, detail="This Google account is already linked to another user")
+
+    user.google_id = google_id
+    db.commit()
+    return {"message": "Google account linked"}
+
+
 @router.delete("/unlink-google", status_code=200)
 def unlink_google(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     if not user.google_id:
