@@ -8,7 +8,6 @@ Create Date: 2026-06-10 00:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 revision: str = 'a2b3c4d5e6f7'
 down_revision: Union[str, None] = 'f4a6b8c2d0e1'
@@ -17,10 +16,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('listings', sa.Column('latitude', sa.Numeric(10, 7), nullable=True))
-    op.add_column('listings', sa.Column('longitude', sa.Numeric(10, 7), nullable=True))
+    op.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS latitude NUMERIC(10,7)")
+    op.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS longitude NUMERIC(10,7)")
 
 
 def downgrade() -> None:
-    op.drop_column('listings', 'longitude')
-    op.drop_column('listings', 'latitude')
+    op.execute("ALTER TABLE listings DROP COLUMN IF EXISTS longitude")
+    op.execute("ALTER TABLE listings DROP COLUMN IF EXISTS latitude")

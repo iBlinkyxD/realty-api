@@ -8,7 +8,6 @@ Create Date: 2026-06-09 18:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = 'c1e5f8a2d934'
@@ -18,10 +17,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('users', sa.Column('verification_attempts', sa.Integer(), server_default='0', nullable=False))
-    op.add_column('users', sa.Column('last_code_sent_at', sa.TIMESTAMP(timezone=True), nullable=True))
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_attempts INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_code_sent_at TIMESTAMPTZ")
 
 
 def downgrade() -> None:
-    op.drop_column('users', 'last_code_sent_at')
-    op.drop_column('users', 'verification_attempts')
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS last_code_sent_at")
+    op.execute("ALTER TABLE users DROP COLUMN IF EXISTS verification_attempts")

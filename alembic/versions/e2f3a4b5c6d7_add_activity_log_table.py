@@ -1,15 +1,13 @@
 """add_activity_log_table
 
 Revision ID: e2f3a4b5c6d7
-Revises: f4a6b8c2d0e1
+Revises: d5e6f7a8b9c0, f4a6b8c2d0e1
 Create Date: 2026-06-12 00:00:00.000000
 
 """
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
-from sqlalchemy.dialects.postgresql import UUID
 
 
 revision: str = 'e2f3a4b5c6d7'
@@ -19,17 +17,18 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'activity_log',
-        sa.Column('id', UUID(as_uuid=True), primary_key=True, server_default=sa.text('gen_random_uuid()')),
-        sa.Column('event_type', sa.Text(), nullable=False),
-        sa.Column('description', sa.Text(), nullable=False),
-        sa.Column('actor_id', UUID(as_uuid=True), nullable=True),
-        sa.Column('created_at', sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False),
-    )
-    op.create_index('ix_activity_log_created_at', 'activity_log', ['created_at'])
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS activity_log (
+            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+            event_type TEXT NOT NULL,
+            description TEXT NOT NULL,
+            actor_id UUID,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+        )
+    """)
+    op.execute("CREATE INDEX IF NOT EXISTS ix_activity_log_created_at ON activity_log (created_at)")
 
 
 def downgrade() -> None:
-    op.drop_index('ix_activity_log_created_at', 'activity_log')
-    op.drop_table('activity_log')
+    op.execute("DROP INDEX IF EXISTS ix_activity_log_created_at")
+    op.execute("DROP TABLE IF EXISTS activity_log")

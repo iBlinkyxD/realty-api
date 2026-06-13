@@ -8,7 +8,6 @@ Create Date: 2026-06-11 20:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 revision: str = 'd5e6f7a8b9c0'
@@ -18,18 +17,28 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.alter_column(
-        'listings', 'bathrooms',
-        type_=sa.Numeric(3, 1),
-        existing_type=sa.Integer(),
-        postgresql_using='bathrooms::numeric(3,1)',
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'listings' AND column_name = 'bathrooms'
+                AND data_type = 'integer'
+            ) THEN
+                ALTER TABLE listings ALTER COLUMN bathrooms TYPE NUMERIC(3,1) USING bathrooms::numeric(3,1);
+            END IF;
+        END $$;
+    """)
 
 
 def downgrade() -> None:
-    op.alter_column(
-        'listings', 'bathrooms',
-        type_=sa.Integer(),
-        existing_type=sa.Numeric(3, 1),
-        postgresql_using='bathrooms::integer',
-    )
+    op.execute("""
+        DO $$ BEGIN
+            IF EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'listings' AND column_name = 'bathrooms'
+                AND data_type = 'numeric'
+            ) THEN
+                ALTER TABLE listings ALTER COLUMN bathrooms TYPE INTEGER USING bathrooms::integer;
+            END IF;
+        END $$;
+    """)

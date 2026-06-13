@@ -8,7 +8,6 @@ Create Date: 2026-06-10 00:00:00.000000
 from typing import Sequence, Union
 
 from alembic import op
-import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
@@ -19,10 +18,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('listings', sa.Column('view_count', sa.Integer(), server_default='0', nullable=False))
-    op.add_column('listings', sa.Column('updated_at', sa.TIMESTAMP(timezone=True), server_default=sa.func.now(), nullable=False))
+    op.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS view_count INTEGER NOT NULL DEFAULT 0")
+    op.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ NOT NULL DEFAULT now()")
 
 
 def downgrade() -> None:
-    op.drop_column('listings', 'updated_at')
-    op.drop_column('listings', 'view_count')
+    op.execute("ALTER TABLE listings DROP COLUMN IF EXISTS updated_at")
+    op.execute("ALTER TABLE listings DROP COLUMN IF EXISTS view_count")
