@@ -31,6 +31,13 @@ class ListingCreate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     tag: Optional[str] = None
+    tags: Optional[List[str]] = None
+    video_links: Optional[List[str]] = None
+    tour_3d_url: Optional[str] = None
+    utilities: Optional[str] = None
+    included_utilities: Optional[List[str]] = None
+    association_fee: Optional[Decimal] = None
+    deposit_policy: Optional[str] = None
     images: Optional[List[str]] = None
 
 
@@ -58,6 +65,13 @@ class ListingUpdate(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     tag: Optional[str] = None
+    tags: Optional[List[str]] = None
+    video_links: Optional[List[str]] = None
+    tour_3d_url: Optional[str] = None
+    utilities: Optional[str] = None
+    included_utilities: Optional[List[str]] = None
+    association_fee: Optional[Decimal] = None
+    deposit_policy: Optional[str] = None
     images: Optional[List[str]] = None
 
 
@@ -86,6 +100,13 @@ class ListingResponse(BaseModel):
     latitude: Optional[float] = None
     longitude: Optional[float] = None
     tag: Optional[str]
+    tags: List[str] = []
+    video_links: List[str] = []
+    tour_3d_url: Optional[str] = None
+    utilities: Optional[str] = None
+    included_utilities: List[str] = []
+    association_fee: Optional[Decimal] = None
+    deposit_policy: Optional[str] = None
     images: List[str]
     status: str
     rejection_reason: Optional[str] = None
