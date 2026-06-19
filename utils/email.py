@@ -106,6 +106,28 @@ def send_upgrade_rejected_email(to_email: str, display_name: str, reason: str) -
     _send(to_email, "Your upgrade request was not approved", _email_wrap("Upgrade request", body))
 
 
+def send_realtor_assigned_owner_email(to_email: str, realtor_name: str, owner_name: str, owner_email: str) -> None:
+    body = f"""
+      <h2 style="margin:0 0 10px;color:#00102e;font-size:21px;font-weight:700">You've been assigned a new property owner</h2>
+      <p style="margin:0 0 20px;color:#555;font-size:14.5px;line-height:1.6">
+        Hi {escape(realtor_name)}, a property owner has been assigned to you on I Love DR Realty.
+        Log in to your dashboard to view their details and begin managing their listing.
+      </p>
+      <div style="background:#f5f9ff;border:1px solid #d0e4f7;border-radius:10px;padding:16px 20px;margin-bottom:24px">
+        <p style="margin:0 0 4px;color:#0b63ab;font-size:13px;font-weight:700">{escape(owner_name)}</p>
+        <p style="margin:0;color:#555;font-size:13px">{escape(owner_email)}</p>
+      </div>
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:28px">
+        <tr><td>
+          <a href="{settings.landing_url}/dashboard" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:14.5px;padding:13px 30px;border-radius:8px">
+            Go to Dashboard &rarr;
+          </a>
+        </td></tr>
+      </table>
+    """
+    _send(to_email, f"New owner assigned to you — {owner_name}", _email_wrap("Owner assignment", body))
+
+
 def _logo_src() -> str:
     # White version for use on the coral header
     base = settings.logo_url or f"{settings.landing_url}/iLoveDRRealty_White.png"

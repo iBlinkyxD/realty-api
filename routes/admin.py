@@ -1,6 +1,7 @@
 from datetime import datetime, timezone
 from decimal import Decimal
 from fastapi import APIRouter, Depends, HTTPException, Query
+from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
 from typing import List, Optional
@@ -12,6 +13,7 @@ from models.activity_log import ActivityLog
 from models.upgrade_request import UpgradeRequest
 from models.listing import Listing
 from models.listing_edit import ListingEdit
+from models.listing_event import ListingEvent
 from models.user import User
 from models.deal_request import DealRequest
 from schemas.auth import CreateAdminUserBody
@@ -19,6 +21,7 @@ from schemas.upgrade_request import UpgradeRequestAdminResponse, AdminRejectBody
 from schemas.listing import ListingResponse, AdminListingResponse, AdminRejectBody as ListingRejectBody
 from schemas.deal_request import DealRequestResponse, DealRequestRejectBody
 from schemas.listing_edit import ListingEditResponse, ListingEditRejectBody
+from schemas.listing_event import ListingEventResponse
 from utils.permission import require_admin
 from utils.security import hash_password
 from utils.email import (
@@ -31,6 +34,25 @@ from utils.email import (
 
 def _log(db: Session, event_type: str, description: str, actor_id=None):
     db.add(ActivityLog(event_type=event_type, description=description, actor_id=actor_id))
+
+
+def _listing_event(
+    db: Session,
+    listing_id,
+    event_type: str,
+    actor_id=None,
+    note: str = None,
+    snapshot_before: dict = None,
+    snapshot_after: dict = None,
+):
+    db.add(ListingEvent(
+        listing_id=listing_id,
+        event_type=event_type,
+        actor_id=actor_id,
+        note=note,
+        snapshot_before=snapshot_before,
+        snapshot_after=snapshot_after,
+    ))
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -60,6 +82,11 @@ def list_upgrade_requests(status: Optional[str] = Query(None), user=Depends(requ
             created_at=req.created_at,
             reviewed_by_name=reviewer.display_name or reviewer.email if reviewer else None,
             reviewed_at=req.reviewed_at,
+            license_number=req.license_number,
+            territory=req.territory,
+            years_experience=req.years_experience,
+            specialties=req.specialties,
+            bio=req.bio,
         )
         for req, u, reviewer in rows
     ]
@@ -154,6 +181,7 @@ def approve_listing(listing_id: UUID, user=Depends(require_admin), db: Session =
     listing.approved_by = user.id
     listing.approved_at = datetime.now(timezone.utc)
     _log(db, "listing_approved", f"Listing approved: {listing.title}", actor_id=user.id)
+    _listing_event(db, listing.id, "approved", actor_id=user.id)
     db.commit()
     submitter = db.query(User).filter(User.id == listing.submitted_by).first()
     if submitter:
@@ -173,6 +201,7 @@ def archive_listing(listing_id: UUID, user=Depends(require_admin), db: Session =
     listing.approved_by = user.id
     listing.approved_at = datetime.now(timezone.utc)
     _log(db, "listing_archived", f"Listing archived: {listing.title}", actor_id=user.id)
+    _listing_event(db, listing.id, "archived", actor_id=user.id)
     db.commit()
 
 
@@ -186,6 +215,7 @@ def reject_listing(listing_id: UUID, body: ListingRejectBody, user=Depends(requi
     listing.approved_by = user.id
     listing.approved_at = datetime.now(timezone.utc)
     _log(db, "listing_rejected", f"Listing rejected: {listing.title}", actor_id=user.id)
+    _listing_event(db, listing.id, "rejected", actor_id=user.id, note=body.reason)
     db.commit()
     submitter = db.query(User).filter(User.id == listing.submitted_by).first()
     if submitter:
@@ -203,6 +233,8 @@ EDIT_FIELDS = [
     "seller_financing", "hoa", "hoa_fee", "tax_exempt", "gated_community",
     "construction_status", "year_built", "features", "maps_url",
     "latitude", "longitude", "tag", "images",
+    "tags", "video_links", "tour_3d_url", "utilities", "included_utilities",
+    "association_fee", "deposit_policy",
 ]
 
 
@@ -259,6 +291,7 @@ def approve_listing_edit(edit_id: UUID, user=Depends(require_admin), db: Session
         raise HTTPException(status_code=404, detail="Listing not found")
 
     proposed = edit.proposed_data or {}
+    before = _listing_snapshot(listing)
     for field in EDIT_FIELDS:
         if field in proposed:
             setattr(listing, field, proposed[field])
@@ -268,6 +301,7 @@ def approve_listing_edit(edit_id: UUID, user=Depends(require_admin), db: Session
     edit.reviewed_by = user.id
     edit.reviewed_at = datetime.now(timezone.utc)
     _log(db, "edit_approved", f"Listing edit approved: {listing.title}", actor_id=user.id)
+    _listing_event(db, listing.id, "edit_approved", actor_id=user.id, snapshot_before=before, snapshot_after=proposed)
     db.commit()
 
 
@@ -279,12 +313,49 @@ def reject_listing_edit(edit_id: UUID, body: ListingEditRejectBody, user=Depends
     if edit.status != "pending":
         raise HTTPException(status_code=409, detail="Edit already reviewed")
 
+    listing = db.query(Listing).filter(Listing.id == edit.listing_id).first()
     edit.status = "rejected"
     edit.reviewed_by = user.id
     edit.reviewed_at = datetime.now(timezone.utc)
     edit.rejection_reason = body.reason
     _log(db, "edit_rejected", f"Listing edit rejected", actor_id=user.id)
+    _listing_event(
+        db, edit.listing_id, "edit_rejected", actor_id=user.id,
+        note=body.reason, snapshot_after=edit.proposed_data,
+    )
     db.commit()
+
+
+# ── Listing History ───────────────────────────────────────────────────────────
+
+@router.get("/listings/{listing_id}/history", response_model=List[ListingEventResponse])
+def get_listing_history(listing_id: UUID, user=Depends(require_admin), db: Session = Depends(get_db)):
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    Actor = aliased(User)
+    rows = (
+        db.query(ListingEvent, Actor)
+        .outerjoin(Actor, Actor.id == ListingEvent.actor_id)
+        .filter(ListingEvent.listing_id == listing_id)
+        .order_by(ListingEvent.created_at.desc())
+        .all()
+    )
+    return [
+        ListingEventResponse(
+            id=ev.id,
+            listing_id=ev.listing_id,
+            event_type=ev.event_type,
+            actor_name=actor.display_name if actor else None,
+            actor_email=actor.email if actor else None,
+            note=ev.note,
+            snapshot_before=ev.snapshot_before,
+            snapshot_after=ev.snapshot_after,
+            created_at=ev.created_at,
+        )
+        for ev, actor in rows
+    ]
 
 
 # ── Users ─────────────────────────────────────────────────────────────────────
@@ -428,11 +499,6 @@ def approve_deal_request(req_id: UUID, user=Depends(require_admin), db: Session 
     if not listing or listing.status != "active":
         raise HTTPException(status_code=400, detail="Listing is no longer active")
 
-    # Clear any existing deal
-    db.query(Listing).filter(Listing.is_deal == True).update(
-        {"is_deal": False, "deal_discount_value": None}, synchronize_session=False
-    )
-
     listing.is_deal = True
     listing.deal_discount_value = req.discount_value
     listing.deal_discount_type = req.discount_type
@@ -473,6 +539,31 @@ def clear_listing_deal(listing_id: UUID, user=Depends(require_admin), db: Sessio
     listing.deal_discount_value = None
     listing.deal_discount_type = 'pct'
     _log(db, "deal_cleared", f"Deal of the Week cleared: {listing.title}", actor_id=user.id)
+    db.commit()
+
+
+class SetDealBody(BaseModel):
+    discount_value: Optional[float] = None
+    discount_type: str = 'pct'
+
+
+@router.post("/listings/{listing_id}/set-deal", status_code=204)
+def set_listing_deal(listing_id: UUID, body: SetDealBody, user=Depends(require_admin), db: Session = Depends(get_db)):
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    if listing.status != "active":
+        raise HTTPException(status_code=400, detail="Listing must be active to set as Deal of the Week")
+    if listing.is_deal:
+        raise HTTPException(status_code=409, detail="Listing is already a Deal of the Week")
+    listing.is_deal = True
+    listing.deal_discount_value = body.discount_value
+    listing.deal_discount_type = body.discount_type or 'pct'
+    if body.discount_value:
+        discount_label = f"−{body.discount_value}%" if body.discount_type == "pct" else f"−${body.discount_value:,.0f}"
+    else:
+        discount_label = "no discount"
+    _log(db, "deal_approved", f"Deal of the Week set: {listing.title} ({discount_label})", actor_id=user.id)
     db.commit()
 
 

@@ -8,3 +8,5 @@ from .saved_home import SavedHome
 from .booking import Booking
 from .activity_log import ActivityLog
 from .deal_request import DealRequest
+from .listing_event import ListingEvent
+from .lead import Lead

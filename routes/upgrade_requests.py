@@ -27,7 +27,12 @@ def submit_upgrade_request(body: UpgradeRequestCreate, user=Depends(get_current_
 
     req = UpgradeRequest(
         user_id=user.id,
-        **body.model_dump(),
+        requested_role=body.requested_role,
+        license_number=body.license_number,
+        territory=body.territory,
+        years_experience=body.years_experience,
+        specialties=body.specialties,
+        bio=body.bio,
     )
     db.add(req)
     db.commit()

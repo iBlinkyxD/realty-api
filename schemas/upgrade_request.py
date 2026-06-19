@@ -6,6 +6,12 @@ import uuid
 
 class UpgradeRequestCreate(BaseModel):
     requested_role: str
+    # Realtor questionnaire fields (ignored for owner requests)
+    license_number: Optional[str] = None
+    territory: Optional[str] = None
+    years_experience: Optional[int] = None
+    specialties: Optional[str] = None
+    bio: Optional[str] = None
 
 
 class UpgradeRequestResponse(BaseModel):
@@ -29,6 +35,12 @@ class UpgradeRequestAdminResponse(BaseModel):
     created_at: datetime
     reviewed_by_name: Optional[str] = None
     reviewed_at: Optional[datetime] = None
+    # Realtor questionnaire
+    license_number: Optional[str] = None
+    territory: Optional[str] = None
+    years_experience: Optional[int] = None
+    specialties: Optional[str] = None
+    bio: Optional[str] = None
 
     model_config = {"from_attributes": True}
 

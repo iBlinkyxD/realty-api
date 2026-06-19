@@ -1,5 +1,5 @@
 import uuid
-from sqlalchemy import Column, Text, Enum as SAEnum, TIMESTAMP, func, ForeignKey
+from sqlalchemy import Column, Text, Integer, Enum as SAEnum, TIMESTAMP, func, ForeignKey
 from sqlalchemy.dialects.postgresql import UUID
 from database import Base
 
@@ -19,6 +19,9 @@ class UpgradeRequest(Base):
     notes = Column(Text)
     license_number = Column(Text)
     territory = Column(Text)
+    years_experience = Column(Integer)
+    specialties = Column(Text)
+    bio = Column(Text)
     reviewed_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     reviewed_at = Column(TIMESTAMP(timezone=True))
     rejection_reason = Column(Text)

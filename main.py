@@ -8,7 +8,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from config import settings
-from database import engine, Base, SessionLocal
+from database import SessionLocal
 from utils.limiter import limiter
 
 # Import all models so Base.metadata knows about them before create_all
@@ -37,7 +37,6 @@ async def _cleanup_pending_users() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    Base.metadata.create_all(bind=engine)
     cleanup_task = asyncio.create_task(_cleanup_pending_users())
     yield
     cleanup_task.cancel()

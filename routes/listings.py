@@ -1,7 +1,7 @@
 import logging
 import filetype
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 from sqlalchemy import func
 from typing import List
 from datetime import datetime, timezone
@@ -12,7 +12,9 @@ logger = logging.getLogger(__name__)
 from database import get_db
 from models.listing import Listing
 from models.listing_edit import ListingEdit
+from models.listing_event import ListingEvent
 from models.inquiry import Inquiry
+from models.lead import Lead
 from models.user import User
 from models.deal_request import DealRequest
 from schemas.listing import ListingCreate, ListingUpdate, ListingResponse
@@ -35,7 +37,7 @@ MAX_FILES = 25
 async def upload_images(
     request: Request,
     files: List[UploadFile] = File(...),
-    user=Depends(require_role("realtor", "owner", "admin")),
+    user=Depends(require_role("realtor", "admin")),
 ):
     if len(files) > MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_FILES} images allowed")
@@ -65,15 +67,23 @@ def get_active_listings(skip: int = 0, limit: int = Query(200, le=200), db: Sess
 
 @router.get("/mine", response_model=List[ListingResponse])
 def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session = Depends(get_db)):
+    from sqlalchemy import or_
+    Submitter = aliased(User)
     leads_subq = (
-        db.query(Inquiry.listing_id, func.count(Inquiry.id).label("cnt"))
-        .group_by(Inquiry.listing_id)
+        db.query(Lead.property_id, func.count(Lead.id).label("cnt"))
+        .group_by(Lead.property_id)
         .subquery()
     )
+    # Owners see listings where they are submitted_by (legacy) OR owner_id (new flow)
+    if user.role == "owner":
+        filter_cond = or_(Listing.submitted_by == user.id, Listing.owner_id == user.id)
+    else:
+        filter_cond = Listing.submitted_by == user.id
     rows = (
-        db.query(Listing, leads_subq.c.cnt)
-        .outerjoin(leads_subq, leads_subq.c.listing_id == Listing.id)
-        .filter(Listing.submitted_by == user.id)
+        db.query(Listing, leads_subq.c.cnt, Submitter)
+        .outerjoin(leads_subq, leads_subq.c.property_id == Listing.id)
+        .outerjoin(Submitter, Submitter.id == Listing.submitted_by)
+        .filter(filter_cond)
         .all()
     )
     pending_deal_ids = {
@@ -94,27 +104,28 @@ def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session 
             leads_count=cnt or 0,
             has_pending_deal_request=l.id in pending_deal_ids,
             has_pending_edit=l.id in pending_edit_ids,
+            submitted_by_name=submitter.display_name if submitter else None,
         )
-        for l, cnt in rows
+        for l, cnt, submitter in rows
     ]
 
 
-@router.get("/deal", response_model=ListingResponse)
-def get_deal_listing(db: Session = Depends(get_db)):
-    listing = db.query(Listing).filter(Listing.is_deal == True, Listing.status == "active").first()
-    if not listing:
-        raise HTTPException(status_code=404, detail="No active deal")
+@router.get("/deal", response_model=List[ListingResponse])
+def get_deal_listings(db: Session = Depends(get_db)):
+    return db.query(Listing).filter(Listing.is_deal == True, Listing.status == "active").all()
     return listing
 
 
 @router.post("", response_model=ListingResponse, status_code=201)
-def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "owner", "admin")), db: Session = Depends(get_db)):
+def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "admin")), db: Session = Depends(get_db)):
     listing = Listing(
         **body.model_dump(),
         submitted_by=user.id,
         status="active" if user.role == "admin" else "pending_approval",
     )
     db.add(listing)
+    db.flush()  # get listing.id before commit
+    db.add(ListingEvent(listing_id=listing.id, event_type="submitted", actor_id=user.id))
     db.commit()
     db.refresh(listing)
     return listing
@@ -204,6 +215,7 @@ def update_listing(listing_id: UUID, body: ListingUpdate, user=Depends(get_curre
             proposed_data=body.model_dump(mode='json'),
         )
         db.add(edit)
+        db.add(ListingEvent(listing_id=listing.id, event_type="edit_submitted", actor_id=user.id))
         db.commit()
         db.refresh(listing)
         return listing

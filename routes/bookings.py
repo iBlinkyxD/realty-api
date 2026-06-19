@@ -4,6 +4,7 @@ from typing import List
 
 from database import get_db
 from models.booking import Booking
+from models.lead import Lead
 from models.listing import Listing
 from models.user import User
 from schemas.booking import BookingCreate, BookingResponse
@@ -44,6 +45,19 @@ def create_booking(
         status="pending",
     )
     db.add(booking)
+
+    # Create a lead so admin can assign a realtor to follow up
+    lead = Lead(
+        type="booking",
+        name=user.display_name or user.email.split("@")[0],
+        email=user.email,
+        property_id=body.listing_id,
+        from_user_id=user.id,
+        message=f"Check-in: {body.check_in}, Check-out: {body.check_out}, Guests: {body.guests}" + (f"\nNotes: {body.notes}" if body.notes else ""),
+        status="new",
+    )
+    db.add(lead)
+
     db.commit()
     db.refresh(booking)
 

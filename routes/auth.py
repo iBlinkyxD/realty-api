@@ -11,6 +11,7 @@ from config import settings
 from database import get_db
 from models.user import User
 from models.pending_user import PendingUser
+from models.lead import Lead
 from schemas.auth import RegisterRequest, RegisterResponse, LoginRequest, VerifyRequest, ResendCodeRequest, TokenResponse, GoogleAuthRequest, UpdateProfileRequest, ChangePasswordRequest, SetPasswordRequest
 from utils.security import hash_password, verify_password
 from utils.jwt import create_access_token, TOKEN_EXPIRE_HOURS
@@ -359,6 +360,35 @@ def refresh_token(response: Response, user: User = Depends(get_current_user)):
     token = create_access_token(user)
     _set_auth_cookie(response, token)
     return TokenResponse(expires_in=TOKEN_EXPIRE_HOURS * 3600)
+
+
+@router.get("/me/agent")
+def get_my_agent(user=Depends(get_current_user), db: Session = Depends(get_db)):
+    """Returns the realtor assigned to the current owner via their seller_interest lead."""
+    _none = {"realtor_id": None, "realtor_name": None, "realtor_email": None, "realtor_phone": None}
+    if user.role != "owner":
+        return _none
+    lead = (
+        db.query(Lead)
+        .filter(
+            Lead.from_user_id == user.id,
+            Lead.type == "seller_interest",
+            Lead.assigned_realtor_id.isnot(None),
+        )
+        .order_by(Lead.created_at.desc())
+        .first()
+    )
+    if not lead:
+        return _none
+    realtor = db.query(User).filter(User.id == lead.assigned_realtor_id).first()
+    if not realtor:
+        return _none
+    return {
+        "realtor_id": str(realtor.id),
+        "realtor_name": realtor.display_name or realtor.email,
+        "realtor_email": realtor.email,
+        "realtor_phone": realtor.phone,
+    }
 
 
 @router.post("/logout")
