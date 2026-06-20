@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
 
 from database import get_db
 from models.saved_home import SavedHome
@@ -38,7 +39,7 @@ def get_saved_homes(user=Depends(get_current_user), db: Session = Depends(get_db
 
 
 @router.post("/{listing_id}", status_code=201)
-def save_home(listing_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def save_home(listing_id: UUID, user=Depends(get_current_user), db: Session = Depends(get_db)):
     listing = db.query(Listing).filter(Listing.id == listing_id).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
@@ -56,7 +57,7 @@ def save_home(listing_id: str, user=Depends(get_current_user), db: Session = Dep
 
 
 @router.delete("/{listing_id}", status_code=204)
-def unsave_home(listing_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def unsave_home(listing_id: UUID, user=Depends(get_current_user), db: Session = Depends(get_db)):
     saved = db.query(SavedHome).filter(
         SavedHome.user_id == user.id,
         SavedHome.listing_id == listing_id,

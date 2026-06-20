@@ -7,6 +7,7 @@ from models.inquiry import Inquiry
 from models.listing import Listing
 from schemas.inquiry import InquiryCreate, InquiryResponse
 from utils.auth import get_current_user, get_optional_user
+from utils.permission import require_role
 
 router = APIRouter(prefix="/inquiries", tags=["inquiries"])
 
@@ -76,7 +77,7 @@ def get_my_inquiries(
 
 @router.get("/for-realtor", response_model=List[InquiryResponse])
 def get_inquiries_for_realtor(
-    user=Depends(get_current_user),
+    user=Depends(require_role("realtor", "admin")),
     db: Session = Depends(get_db),
 ):
     rows = (
@@ -103,7 +104,7 @@ def get_inquiries_for_realtor(
 
 @router.get("/for-owner", response_model=List[InquiryResponse])
 def get_inquiries_for_owner(
-    user=Depends(get_current_user),
+    user=Depends(require_role("owner", "admin")),
     db: Session = Depends(get_db),
 ):
     rows = (

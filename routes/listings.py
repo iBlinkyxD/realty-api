@@ -113,7 +113,6 @@ def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session 
 @router.get("/deal", response_model=List[ListingResponse])
 def get_deal_listings(db: Session = Depends(get_db)):
     return db.query(Listing).filter(Listing.is_deal == True, Listing.status == "active").all()
-    return listing
 
 
 @router.post("", response_model=ListingResponse, status_code=201)

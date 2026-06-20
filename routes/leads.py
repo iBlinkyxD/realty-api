@@ -139,7 +139,7 @@ def _build_response(lead: Lead, db: Session) -> LeadResponse:
 # ── Public endpoints ──────────────────────────────────────────────────────────
 
 @router.post("/leads", status_code=201)
-@limiter.limit("10/minute")
+@limiter.limit("3/minute")
 def create_lead(
     request: Request,
     body: LeadCreate,

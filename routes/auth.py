@@ -45,9 +45,9 @@ def _set_auth_cookie(response: Response, token: str) -> None:
 @router.post("/register", response_model=RegisterResponse, status_code=201)
 @limiter.limit("3/minute")
 def register(request: Request, body: RegisterRequest, db: Session = Depends(get_db)):
-    # Reject if already a verified user
+    # Reject if already a verified user — generic message to prevent email enumeration
     if db.query(User).filter(User.email == body.email).first():
-        raise HTTPException(status_code=409, detail="Email already registered")
+        raise HTTPException(status_code=409, detail="An account with that email already exists")
 
     code = generate_verification_code()
     expires_at = datetime.now(timezone.utc) + timedelta(hours=PENDING_USER_TTL_HOURS)
@@ -95,9 +95,9 @@ RESEND_COOLDOWN_SECONDS = 60
 @router.post("/verify", response_model=TokenResponse)
 @limiter.limit("10/minute")
 def verify_email(request: Request, body: VerifyRequest, response: Response, db: Session = Depends(get_db)):
-    # Already verified and promoted to users table?
+    # Already verified — return the same 400 shape as expired/wrong code to avoid enumeration
     if db.query(User).filter(User.email == body.email).first():
-        raise HTTPException(status_code=400, detail="Email already verified")
+        raise HTTPException(status_code=400, detail="Invalid or expired verification code")
 
     pending = db.query(PendingUser).filter(PendingUser.email == body.email).first()
     if not pending:

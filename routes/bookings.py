@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
+from uuid import UUID
 
 from database import get_db
 from models.booking import Booking
@@ -106,7 +107,7 @@ def get_my_bookings(user=Depends(get_current_user), db: Session = Depends(get_db
 
 
 @router.put("/{booking_id}/cancel", status_code=204)
-def cancel_booking(booking_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def cancel_booking(booking_id: UUID, user=Depends(get_current_user), db: Session = Depends(get_db)):
     booking = db.query(Booking).filter(Booking.id == booking_id, Booking.buyer_id == user.id).first()
     if not booking:
         raise HTTPException(status_code=404, detail="Booking not found")
@@ -117,7 +118,7 @@ def cancel_booking(booking_id: str, user=Depends(get_current_user), db: Session 
 
 
 @router.put("/{booking_id}/accept", status_code=204)
-def accept_booking(booking_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def accept_booking(booking_id: UUID, user=Depends(get_current_user), db: Session = Depends(get_db)):
     booking = db.query(Booking, Listing).join(Listing, Listing.id == Booking.listing_id).filter(
         Booking.id == booking_id, Listing.submitted_by == user.id
     ).first()
@@ -131,7 +132,7 @@ def accept_booking(booking_id: str, user=Depends(get_current_user), db: Session 
 
 
 @router.put("/{booking_id}/decline", status_code=204)
-def decline_booking(booking_id: str, user=Depends(get_current_user), db: Session = Depends(get_db)):
+def decline_booking(booking_id: UUID, user=Depends(get_current_user), db: Session = Depends(get_db)):
     booking = db.query(Booking, Listing).join(Listing, Listing.id == Booking.listing_id).filter(
         Booking.id == booking_id, Listing.submitted_by == user.id
     ).first()

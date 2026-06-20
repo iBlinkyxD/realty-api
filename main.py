@@ -48,9 +48,16 @@ app = FastAPI(title="I Love DR Realty API", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+_cors_origins = settings.origins_list
+if any(o.strip() in ("*", "") for o in _cors_origins):
+    raise RuntimeError(
+        "ALLOWED_ORIGINS must not contain '*' when allow_credentials=True. "
+        "Set explicit origins in the ALLOWED_ORIGINS environment variable."
+    )
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.origins_list,
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["Content-Type", "Authorization"],
