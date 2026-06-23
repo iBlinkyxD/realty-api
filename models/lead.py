@@ -21,3 +21,6 @@ class Lead(Base):
     assigned_at         = Column(TIMESTAMP(timezone=True), nullable=True)
     contacted_at        = Column(TIMESTAMP(timezone=True), nullable=True)
     closed_at           = Column(TIMESTAMP(timezone=True), nullable=True)
+    ghl_contact_id      = Column(Text, nullable=True)
+    ghl_sync_error      = Column(Text, nullable=True)
+    ghl_synced_at       = Column(TIMESTAMP(timezone=True), nullable=True)

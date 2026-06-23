@@ -15,6 +15,9 @@ class Settings(BaseSettings):
     supabase_url: str = ""
     supabase_service_key: str = ""
     storage_bucket: str = "listing-images"
+    ghl_api_key: str = ""
+    ghl_location_id: str = ""
+    ghl_enabled: bool = False
 
     @property
     def origins_list(self) -> list[str]:

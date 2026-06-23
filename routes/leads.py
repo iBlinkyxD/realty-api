@@ -3,7 +3,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 from sqlalchemy import or_
 from pydantic import BaseModel, EmailStr, Field
-from typing import Optional, List
+from typing import Optional, List, Literal
 from datetime import datetime, timezone
 
 from database import get_db
@@ -14,6 +14,8 @@ from utils.auth import get_current_user, get_optional_user
 from utils.permission import require_admin
 from utils.limiter import limiter
 from utils.email import send_upgrade_approved_email, send_realtor_assigned_owner_email
+from utils import ghl
+from config import settings
 
 router = APIRouter(tags=["leads"])
 
@@ -21,11 +23,11 @@ router = APIRouter(tags=["leads"])
 # ── Schemas ──────────────────────────────────────────────────────────────────
 
 class LeadCreate(BaseModel):
-    type: str = Field(default="property_inquiry")  # property_inquiry | buyer_interest | seller_interest
+    type: Literal["property_inquiry", "buyer_interest", "seller_interest", "booking"] = "property_inquiry"
     name: str = Field(max_length=200)
     email: EmailStr
     phone: Optional[str] = Field(default=None, max_length=50)
-    message: Optional[str] = None
+    message: Optional[str] = Field(default=None, max_length=2000)
     property_id: Optional[str] = None
 
 
@@ -51,6 +53,7 @@ class LeadResponse(BaseModel):
     assigned_at: Optional[datetime]
     contacted_at: Optional[datetime]
     closed_at: Optional[datetime]
+    ghl_contact_url: Optional[str]
 
     class Config:
         from_attributes = True
@@ -81,7 +84,7 @@ def _apply_status_timestamp(lead: Lead, status: str) -> None:
         lead.closed_at = now
 
 
-def _build_response(lead: Lead, db: Session) -> LeadResponse:
+def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadResponse:
     property_title = None
     listing_realtor_id = None
     listing_realtor_name = None
@@ -111,6 +114,13 @@ def _build_response(lead: Lead, db: Session) -> LeadResponse:
             from_user_name = from_user.display_name or from_user.email
             from_user_avatar_url = from_user.avatar_url
 
+    ghl_contact_url = None
+    if include_ghl and lead.ghl_contact_id and settings.ghl_location_id:
+        ghl_contact_url = (
+            f"https://app.gohighlevel.com/v2/location/{settings.ghl_location_id}"
+            f"/contacts/detail/{lead.ghl_contact_id}"
+        )
+
     return LeadResponse(
         id=str(lead.id),
         type=lead.type,
@@ -133,6 +143,7 @@ def _build_response(lead: Lead, db: Session) -> LeadResponse:
         assigned_at=lead.assigned_at,
         contacted_at=lead.contacted_at,
         closed_at=lead.closed_at,
+        ghl_contact_url=ghl_contact_url,
     )
 
 
@@ -159,6 +170,22 @@ def create_lead(
     db.add(lead)
     db.commit()
     db.refresh(lead)
+
+    property_info = None
+    if lead.property_id:
+        listing = db.query(Listing).filter(Listing.id == lead.property_id).first()
+        if listing:
+            property_info = {
+                "id": str(listing.id),
+                "title": listing.title,
+                "price": float(listing.price) if listing.price else None,
+                "location": listing.location,
+                "bedrooms": listing.bedrooms,
+                "bathrooms": float(listing.bathrooms) if listing.bathrooms else None,
+                "listing_type": listing.type,
+            }
+    ghl.create_contact(lead, property_info, db)
+
     return {"id": str(lead.id), "status": lead.status}
 
 
@@ -214,7 +241,7 @@ def get_realtor_leads(
         .order_by(Lead.created_at.desc())
         .all()
     )
-    return [_build_response(l, db) for l in leads]
+    return [_build_response(l, db, include_ghl=True) for l in leads]
 
 
 @router.put("/realtor/leads/{lead_id}/status", status_code=204)
@@ -256,7 +283,7 @@ def admin_get_leads(
     if assigned_realtor_id:
         q = q.filter(Lead.assigned_realtor_id == UUID(assigned_realtor_id))
     leads = q.order_by(Lead.created_at.desc()).all()
-    return [_build_response(l, db) for l in leads]
+    return [_build_response(l, db, include_ghl=True) for l in leads]
 
 
 @router.put("/admin/leads/{lead_id}/assign", status_code=204)
