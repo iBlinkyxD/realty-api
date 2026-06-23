@@ -38,8 +38,9 @@ def _split_name(full_name: str) -> tuple[str, str]:
 
 def _build_property_lines(property_info: dict, landing_url: str) -> list[str]:
     lines = []
-    lines.append(f"Property: {property_info['title']}")
-    lines.append(f"Link: {landing_url.rstrip('/')}/listing/{property_info['id']}")
+    url = f"{landing_url.rstrip('/')}/listing/{property_info['id']}"
+    title = escape(property_info["title"])
+    lines.append(f'Property: <a href="{url}" target="_blank">{title}</a>')
     if property_info.get("listing_type"):
         lines.append(f"Type: {property_info['listing_type'].title()}")
     if property_info.get("location"):
@@ -56,8 +57,8 @@ def _build_property_lines(property_info: dict, landing_url: str) -> list[str]:
 def _post_extras(client: httpx.Client, contact_id: str, lead, note_parts: list[str]) -> None:
     """Post note + follow-up task to an existing GHL contact. Never raises."""
     if note_parts:
-        message_lines = [l for l in note_parts if not l.startswith(("Property:", "Link:", "Type:", "Location:", "Price:", "Beds"))]
-        property_lines = [l for l in note_parts if l.startswith(("Property:", "Link:", "Type:", "Location:", "Price:", "Beds"))]
+        message_lines = [l for l in note_parts if not l.startswith(("Property:", "Type:", "Location:", "Price:", "Beds"))]
+        property_lines = [l for l in note_parts if l.startswith(("Property:", "Type:", "Location:", "Price:", "Beds"))]
         note_body_parts = []
         if message_lines:
             note_body_parts.extend(message_lines)
@@ -80,7 +81,7 @@ def _post_extras(client: httpx.Client, contact_id: str, lead, note_parts: list[s
     task_lines = ["New lead from I Love DR Realty Website."]
     if lead.message:
         task_lines.append(f"<br><b>Message:</b> {lead.message}")
-    property_lines = [l for l in note_parts if l.startswith(("Property:", "Link:", "Type:", "Location:", "Price:", "Beds"))]
+    property_lines = [l for l in note_parts if l.startswith(("Property:", "Type:", "Location:", "Price:", "Beds"))]
     if property_lines:
         task_lines.append("<br>")
         task_lines.extend(property_lines)
