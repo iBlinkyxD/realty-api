@@ -211,7 +211,7 @@ def update_listing(listing_id: UUID, body: ListingUpdate, user=Depends(get_curre
         edit = ListingEdit(
             listing_id=listing.id,
             submitted_by=user.id,
-            proposed_data=body.model_dump(mode='json'),
+            proposed_data=body.model_dump(exclude_unset=True, mode='json'),
         )
         db.add(edit)
         db.add(ListingEvent(listing_id=listing.id, event_type="edit_submitted", actor_id=user.id))

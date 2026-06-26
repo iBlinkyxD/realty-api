@@ -235,6 +235,9 @@ EDIT_FIELDS = [
     "latitude", "longitude", "tag", "images",
     "tags", "video_links", "tour_3d_url", "utilities", "included_utilities",
     "association_fee", "deposit_policy",
+    "co_listing_enabled", "co_listing_brokerage", "co_listing_agent_name",
+    "co_listing_agent_contact", "co_listing_commission_split",
+    "co_listing_notes", "co_listing_status",
 ]
 
 
@@ -292,9 +295,13 @@ def approve_listing_edit(edit_id: UUID, user=Depends(require_admin), db: Session
 
     proposed = edit.proposed_data or {}
     before = _listing_snapshot(listing)
+    _NOT_NULL_BOOLEANS = {"seller_financing", "hoa", "tax_exempt", "gated_community", "co_listing_enabled"}
     for field in EDIT_FIELDS:
         if field in proposed:
-            setattr(listing, field, proposed[field])
+            val = proposed[field]
+            if val is None and field in _NOT_NULL_BOOLEANS:
+                continue
+            setattr(listing, field, val)
 
     listing.updated_at = datetime.now(timezone.utc)
     edit.status = "approved"

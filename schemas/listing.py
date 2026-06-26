@@ -39,6 +39,13 @@ class ListingCreate(BaseModel):
     association_fee: Optional[Decimal] = None
     deposit_policy: Optional[str] = None
     images: Optional[List[str]] = None
+    co_listing_enabled: bool = False
+    co_listing_brokerage: Optional[str] = None
+    co_listing_agent_name: Optional[str] = None
+    co_listing_agent_contact: Optional[str] = None
+    co_listing_commission_split: Optional[Decimal] = None
+    co_listing_notes: Optional[str] = None
+    co_listing_status: Optional[str] = None
 
 
 class ListingUpdate(BaseModel):
@@ -73,6 +80,13 @@ class ListingUpdate(BaseModel):
     association_fee: Optional[Decimal] = None
     deposit_policy: Optional[str] = None
     images: Optional[List[str]] = None
+    co_listing_enabled: Optional[bool] = None
+    co_listing_brokerage: Optional[str] = None
+    co_listing_agent_name: Optional[str] = None
+    co_listing_agent_contact: Optional[str] = None
+    co_listing_commission_split: Optional[Decimal] = None
+    co_listing_notes: Optional[str] = None
+    co_listing_status: Optional[str] = None
 
 
 class ListingResponse(BaseModel):
@@ -114,6 +128,13 @@ class ListingResponse(BaseModel):
     deal_discount_value: Optional[Decimal] = None
     deal_discount_type: str = 'pct'
     view_count: int = 0
+    co_listing_enabled: bool = False
+    co_listing_brokerage: Optional[str] = None
+    co_listing_agent_name: Optional[str] = None
+    co_listing_agent_contact: Optional[str] = None
+    co_listing_commission_split: Optional[Decimal] = None
+    co_listing_notes: Optional[str] = None
+    co_listing_status: Optional[str] = None
     leads_count: int = 0
     has_pending_deal_request: bool = False
     has_pending_edit: bool = False
