@@ -29,3 +29,5 @@ class User(Base):
     last_code_sent_at = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
     deletion_requested_at = Column(TIMESTAMP(timezone=True), nullable=True)
+    password_reset_token = Column(Text, nullable=True, index=True)
+    password_reset_expires = Column(TIMESTAMP(timezone=True), nullable=True)

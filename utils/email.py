@@ -221,6 +221,58 @@ def send_realtor_lead_assigned_email(
     _send(to_email, f"New lead assigned to you — {lead.name}", _email_wrap("Lead assigned", body))
 
 
+def send_password_reset_email(to_email: str, reset_url: str) -> None:
+    body = f"""
+      <h2 style="margin:0 0 10px;color:#00102e;font-size:21px;font-weight:700">Reset your password</h2>
+      <p style="margin:0 0 20px;color:#555;font-size:14.5px;line-height:1.6">
+        We received a request to reset the password for your I Love DR Realty account.
+        Click the button below to set a new password. This link expires in <strong>1 hour</strong>.
+      </p>
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:24px">
+        <tr><td>
+          <a href="{reset_url}" style="display:inline-block;background:#e10f1f;color:#ffffff;text-decoration:none;font-weight:700;font-size:14.5px;padding:13px 30px;border-radius:8px">
+            Reset Password &rarr;
+          </a>
+        </td></tr>
+      </table>
+      <p style="margin:0 0 6px;color:#999;font-size:12.5px">If the button doesn't work, copy and paste this link:</p>
+      <p style="margin:0 0 28px;font-size:12px;word-break:break-all">
+        <a href="{reset_url}" style="color:#e10f1f;text-decoration:underline">{reset_url}</a>
+      </p>
+    """
+    _send(
+        to_email,
+        "Reset your I Love DR Realty password",
+        _email_wrap("If you didn't request this, you can safely ignore this email.", body),
+    )
+
+
+def send_password_changed_email(to_email: str) -> None:
+    body = f"""
+      <h2 style="margin:0 0 10px;color:#00102e;font-size:21px;font-weight:700">Your password has been changed</h2>
+      <p style="margin:0 0 20px;color:#555;font-size:14.5px;line-height:1.6">
+        The password for your I Love DR Realty account was successfully reset.
+        You can now log in with your new password.
+      </p>
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:24px">
+        <tr><td>
+          <a href="{settings.landing_url}/login" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:14.5px;padding:13px 30px;border-radius:8px">
+            Log In &rarr;
+          </a>
+        </td></tr>
+      </table>
+      <p style="margin:0 0 28px;color:#888;font-size:13px;line-height:1.6">
+        If you did not make this change, please contact us immediately at
+        <a href="mailto:support@ilovedrrealty.com" style="color:#e10f1f;text-decoration:underline">support@ilovedrrealty.com</a>.
+      </p>
+    """
+    _send(
+        to_email,
+        "Your I Love DR Realty password has been changed",
+        _email_wrap("Security notice — if you didn't do this, contact us right away.", body),
+    )
+
+
 def _logo_src() -> str:
     # White version for use on the coral header
     base = settings.logo_url or f"{settings.landing_url}/iLoveDRRealty_White.png"

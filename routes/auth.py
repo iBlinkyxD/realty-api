@@ -1,6 +1,8 @@
+import hashlib
 import hmac
 import json
 import logging
+import secrets
 import urllib.request
 import urllib.error
 from datetime import datetime, timedelta, timezone
@@ -12,11 +14,11 @@ from database import get_db
 from models.user import User
 from models.pending_user import PendingUser
 from models.lead import Lead
-from schemas.auth import RegisterRequest, RegisterResponse, LoginRequest, VerifyRequest, ResendCodeRequest, TokenResponse, GoogleAuthRequest, UpdateProfileRequest, ChangePasswordRequest, SetPasswordRequest
+from schemas.auth import RegisterRequest, RegisterResponse, LoginRequest, VerifyRequest, ResendCodeRequest, TokenResponse, GoogleAuthRequest, UpdateProfileRequest, ChangePasswordRequest, SetPasswordRequest, ForgotPasswordRequest, ResetPasswordRequest
 from utils.security import hash_password, verify_password
 from utils.jwt import create_access_token, TOKEN_EXPIRE_HOURS
 from utils.verification import generate_verification_code
-from utils.email import send_verification_email, CODE_EXPIRE_MINUTES
+from utils.email import send_verification_email, send_password_reset_email, send_password_changed_email, CODE_EXPIRE_MINUTES
 from utils.auth import get_current_user
 from utils.limiter import limiter
 from utils.storage import upload_avatar
@@ -26,6 +28,7 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/auth", tags=["auth"])
 
 PENDING_USER_TTL_HOURS = 48
+RESET_TOKEN_EXPIRE_HOURS = 1
 
 
 def _set_auth_cookie(response: Response, token: str) -> None:
@@ -410,6 +413,45 @@ def request_account_deletion(user: User = Depends(get_current_user), db: Session
     user.deletion_requested_at = datetime.now(timezone.utc)
     db.commit()
     logger.info("Deletion requested for user %s", user.id)
+
+
+@router.post("/forgot-password", status_code=200)
+@limiter.limit("3/minute")
+def forgot_password(request: Request, body: ForgotPasswordRequest, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.email == body.email).first()
+    if user:
+        raw_token = secrets.token_urlsafe(32)
+        token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
+        user.password_reset_token = token_hash
+        user.password_reset_expires = datetime.now(timezone.utc) + timedelta(hours=RESET_TOKEN_EXPIRE_HOURS)
+        db.commit()
+        reset_url = f"{settings.landing_url}/reset-password?token={raw_token}"
+        try:
+            send_password_reset_email(user.email, reset_url)
+        except Exception:
+            logger.exception("Failed to send password reset email to %s", user.email)
+    return {"message": "If an account with that email exists, a reset link has been sent"}
+
+
+@router.post("/reset-password", status_code=200)
+@limiter.limit("5/minute")
+def reset_password(request: Request, body: ResetPasswordRequest, db: Session = Depends(get_db)):
+    token_hash = hashlib.sha256(body.token.encode()).hexdigest()
+    user = db.query(User).filter(
+        User.password_reset_token == token_hash,
+        User.password_reset_expires > datetime.now(timezone.utc),
+    ).first()
+    if not user:
+        raise HTTPException(status_code=400, detail="This reset link is invalid or has expired")
+    user.password_hash = hash_password(body.new_password)
+    user.password_reset_token = None
+    user.password_reset_expires = None
+    db.commit()
+    try:
+        send_password_changed_email(user.email)
+    except Exception:
+        logger.exception("Failed to send password changed notification to %s", user.email)
+    return {"message": "Password reset successfully"}
 
 
 @router.post("/logout")
