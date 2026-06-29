@@ -103,6 +103,37 @@ def _post_extras(client: httpx.Client, contact_id: str, lead, note_parts: list[s
         print(f"[GHL] task failed for contact {contact_id}: {exc}")
 
 
+STATUS_TAGS: dict[str, str] = {
+    "new":       "lead-new",
+    "assigned":  "lead-assigned",
+    "contacted": "lead-contacted",
+    "closed":    "lead-closed",
+}
+
+# Reverse map used by the webhook handler to translate incoming tags → our status values
+TAG_TO_STATUS: dict[str, str] = {v: k for k, v in STATUS_TAGS.items()}
+
+
+def update_contact_status(ghl_contact_id: str, status: str) -> None:
+    """Add the lead-status tag to a GHL contact when our status changes. Fire-and-forget."""
+    if not settings.ghl_enabled or not settings.ghl_api_key or not ghl_contact_id:
+        return
+    tag = STATUS_TAGS.get(status)
+    if not tag:
+        return
+    try:
+        with httpx.Client(timeout=10) as client:
+            r = client.post(
+                f"{GHL_API_BASE}/contacts/{ghl_contact_id}/tags",
+                headers=_headers(),
+                json={"tags": [tag]},
+            )
+            if not r.is_success:
+                print(f"[GHL] status tag update failed {r.status_code}: {r.text}")
+    except Exception as exc:
+        print(f"[GHL] status tag update failed for contact {ghl_contact_id}: {exc}")
+
+
 def create_contact(lead, property_info: dict | None, db: Session) -> None:
     """
     Push a newly created lead to GHL as a contact.

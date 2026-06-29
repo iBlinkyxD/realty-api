@@ -18,6 +18,7 @@ class Settings(BaseSettings):
     ghl_api_key: str = ""
     ghl_location_id: str = ""
     ghl_enabled: bool = False
+    ghl_webhook_secret: str = ""
     notify_email: str = ""  # set to ilovedrrealty@gmail.com in Railway
 
     @property

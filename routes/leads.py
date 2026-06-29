@@ -280,6 +280,9 @@ def realtor_update_lead_status(
     _apply_status_timestamp(lead, body.status)
     db.commit()
 
+    if lead.ghl_contact_id:
+        ghl.update_contact_status(lead.ghl_contact_id, body.status)
+
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
 
@@ -326,6 +329,9 @@ def admin_assign_lead(
             owner.role = "owner"
             owner_upgraded = owner
     db.commit()
+
+    if lead.ghl_contact_id:
+        ghl.update_contact_status(lead.ghl_contact_id, "assigned")
 
     # Notify assigned realtor
     try:
@@ -380,3 +386,6 @@ def admin_update_lead_status(
     lead.status = body.status
     _apply_status_timestamp(lead, body.status)
     db.commit()
+
+    if lead.ghl_contact_id:
+        ghl.update_contact_status(lead.ghl_contact_id, body.status)

@@ -1,0 +1,99 @@
+import hashlib
+import hmac
+import logging
+
+from fastapi import APIRouter, HTTPException, Request
+from sqlalchemy.orm import Session
+from fastapi import Depends
+
+from config import settings
+from database import get_db
+from models.lead import Lead
+from utils.ghl import TAG_TO_STATUS
+
+log = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/webhooks", tags=["webhooks"])
+
+_STATUS_SET = frozenset(TAG_TO_STATUS.keys())  # "lead-new", "lead-assigned", etc.
+
+
+def _verify_signature(body: bytes, sig_header: str | None, query_key: str | None) -> bool:
+    """
+    Verify the incoming request is from GHL. Two accepted methods:
+    1. HMAC-SHA256 signature in x-ghl-signature header (Private Integration webhooks)
+    2. Static secret passed as ?key=<secret> query param (Automation/Workflow webhooks)
+    Rejects all requests when GHL_WEBHOOK_SECRET is not configured.
+    """
+    secret = settings.ghl_webhook_secret
+    if not secret:
+        log.error("GHL_WEBHOOK_SECRET is not set — rejecting all incoming webhooks")
+        return False
+    if sig_header:
+        expected = hmac.new(secret.encode(), body, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, sig_header.lower().removeprefix("sha256="))
+    if query_key:
+        return hmac.compare_digest(secret, query_key)
+    return False
+
+
+@router.post("/ghl", status_code=200)
+async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Receive GHL contact events and sync lead status back to our DB.
+    Auth: HMAC-SHA256 via x-ghl-signature header OR static secret via ?key= query param.
+    """
+    raw_body = await request.body()
+
+    sig_header = (
+        request.headers.get("x-ghl-signature")
+        or request.headers.get("x-ghl-signature-256")
+    )
+    query_key = request.query_params.get("key")
+    if not _verify_signature(raw_body, sig_header, query_key):
+        log.warning("GHL webhook: invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        # Malformed JSON — acknowledge so GHL doesn't retry
+        return {"received": True}
+
+    contact_id: str | None = payload.get("contactId") or payload.get("id")
+    if not contact_id:
+        return {"received": True}
+
+    # Determine which of our lead-status tags (if any) are present in the event
+    incoming_tags: list[str] = payload.get("tags") or []
+    matched_status: str | None = None
+    for tag in incoming_tags:
+        if tag in _STATUS_SET:
+            matched_status = TAG_TO_STATUS[tag]
+            break  # take the first match
+
+    if not matched_status:
+        return {"received": True}
+
+    lead: Lead | None = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
+    if not lead:
+        return {"received": True}
+
+    if lead.status == matched_status:
+        return {"received": True}
+
+    old_status = lead.status
+    lead.status = matched_status
+
+    from datetime import datetime, timezone
+    now = datetime.now(timezone.utc)
+    if matched_status == "assigned" and lead.assigned_at is None:
+        lead.assigned_at = now
+    elif matched_status == "contacted" and lead.contacted_at is None:
+        lead.contacted_at = now
+    elif matched_status == "closed" and lead.closed_at is None:
+        lead.closed_at = now
+
+    db.commit()
+    log.info("GHL webhook: lead %s status %s -> %s", lead.id, old_status, matched_status)
+    return {"received": True}
