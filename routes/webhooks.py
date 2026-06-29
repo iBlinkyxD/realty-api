@@ -61,13 +61,14 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
                     len(raw_body), request.headers.get("content-type"))
         return {"received": True}
 
-    log.info("GHL webhook payload keys=%s contactId=%s tags=%s",
-             list(payload.keys()),
-             payload.get("contactId") or payload.get("id"),
-             payload.get("tags"))
+    log.warning("GHL webhook payload keys=%s contactId=%s tags=%s",
+                list(payload.keys()),
+                payload.get("contactId") or payload.get("id"),
+                payload.get("tags"))
 
     contact_id: str | None = payload.get("contactId") or payload.get("id")
     if not contact_id:
+        log.warning("GHL webhook: no contactId in payload")
         return {"received": True}
 
     # Determine which of our lead-status tags (if any) are present in the event
@@ -79,13 +80,16 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
             break  # take the first match
 
     if not matched_status:
+        log.warning("GHL webhook: no matching status tag in %s", incoming_tags)
         return {"received": True}
 
     lead: Lead | None = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()
     if not lead:
+        log.warning("GHL webhook: no lead found for ghl_contact_id=%s", contact_id)
         return {"received": True}
 
     if lead.status == matched_status:
+        log.warning("GHL webhook: lead %s already has status %s", lead.id, matched_status)
         return {"received": True}
 
     old_status = lead.status
