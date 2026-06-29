@@ -10,6 +10,7 @@ from uuid import UUID
 from config import settings
 from database import get_db
 from models.activity_log import ActivityLog
+from models.site_settings import SiteSettings
 from models.upgrade_request import UpgradeRequest
 from models.listing import Listing
 from models.listing_edit import ListingEdit
@@ -571,6 +572,30 @@ def set_listing_deal(listing_id: UUID, body: SetDealBody, user=Depends(require_a
     else:
         discount_label = "no discount"
     _log(db, "deal_approved", f"Deal of the Week set: {listing.title} ({discount_label})", actor_id=user.id)
+    db.commit()
+
+
+@router.get("/settings")
+def get_settings(user=Depends(require_admin), db: Session = Depends(get_db)):
+    row = db.query(SiteSettings).filter(SiteSettings.id == 1).first()
+    data = row.data if row else {}
+    return {"notify_email": data.get("notify_email", ""), "updated_at": row.updated_at if row else None}
+
+
+class PlatformSettingsBody(BaseModel):
+    notify_email: Optional[str] = None
+
+
+@router.put("/settings", status_code=204)
+def update_settings(body: PlatformSettingsBody, user=Depends(require_admin), db: Session = Depends(get_db)):
+    row = db.query(SiteSettings).filter(SiteSettings.id == 1).first()
+    if row is None:
+        row = SiteSettings(id=1, data={})
+        db.add(row)
+    new_data = dict(row.data or {})
+    if body.notify_email is not None:
+        new_data["notify_email"] = body.notify_email.strip()
+    row.data = new_data
     db.commit()
 
 

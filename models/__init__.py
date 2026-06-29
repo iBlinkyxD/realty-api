@@ -10,3 +10,4 @@ from .activity_log import ActivityLog
 from .deal_request import DealRequest
 from .listing_event import ListingEvent
 from .lead import Lead
+from .site_settings import SiteSettings

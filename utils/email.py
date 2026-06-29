@@ -128,6 +128,99 @@ def send_realtor_assigned_owner_email(to_email: str, realtor_name: str, owner_na
     _send(to_email, f"New owner assigned to you — {owner_name}", _email_wrap("Owner assignment", body))
 
 
+def send_lead_notification(lead, property_info: dict | None = None, notify_email: str | None = None) -> None:
+    email = notify_email or settings.notify_email
+    if not email:
+        return
+    type_labels = {
+        "property_inquiry": "Property Inquiry",
+        "buyer_interest":   "Buyer Interest",
+        "seller_interest":  "Seller Interest",
+        "booking":          "Booking Request",
+    }
+    type_label = type_labels.get(lead.type, escape(lead.type))
+    phone_row = f"<tr><td style='padding:4px 0;color:#888;font-size:13px;width:90px'>Phone</td><td style='padding:4px 0;font-size:13px;color:#00102e'>{escape(lead.phone)}</td></tr>" if lead.phone else ""
+    message_block = f"""
+      <div style="background:#f5f3ef;border-radius:8px;padding:14px 16px;margin:16px 0">
+        <p style="margin:0;color:#555;font-size:13.5px;line-height:1.6;white-space:pre-wrap">{escape(lead.message)}</p>
+      </div>""" if lead.message else ""
+    property_block = ""
+    if property_info:
+        prop_title = escape(property_info.get("title", ""))
+        prop_url = f"{settings.landing_url}/listing/{property_info.get('id', '')}"
+        property_block = f"""
+      <p style="margin:16px 0 6px;font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em">Property</p>
+      <a href="{prop_url}" style="color:#0b63ab;font-size:13.5px;font-weight:600;text-decoration:none">{prop_title} &rarr;</a>"""
+    dashboard_url = f"{settings.landing_url}/dashboard"
+    body = f"""
+      <h2 style="margin:0 0 4px;color:#00102e;font-size:20px;font-weight:700">New lead captured</h2>
+      <p style="margin:0 0 20px;color:#888;font-size:13px">{type_label}</p>
+      <table style="border-collapse:collapse;width:100%">
+        <tr><td style="padding:4px 0;color:#888;font-size:13px;width:90px">Name</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(lead.name)}</td></tr>
+        <tr><td style="padding:4px 0;color:#888;font-size:13px">Email</td><td style="padding:4px 0;font-size:13px;color:#00102e"><a href="mailto:{escape(lead.email)}" style="color:#0b63ab">{escape(lead.email)}</a></td></tr>
+        {phone_row}
+      </table>
+      {message_block}
+      {property_block}
+      <table cellpadding="0" cellspacing="0" style="margin-top:24px;margin-bottom:8px">
+        <tr><td>
+          <a href="{dashboard_url}" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:13.5px;padding:11px 26px;border-radius:8px">
+            View in Dashboard &rarr;
+          </a>
+        </td></tr>
+      </table>
+    """
+    _send(email, f"New lead: {lead.name}", _email_wrap("Lead notification", body))
+
+
+def send_realtor_lead_assigned_email(
+    to_email: str,
+    realtor_name: str,
+    lead,
+    property_info: dict | None = None,
+) -> None:
+    type_labels = {
+        "property_inquiry": "Property Inquiry",
+        "buyer_interest":   "Buyer Interest",
+        "seller_interest":  "Seller Interest",
+        "booking":          "Booking Request",
+    }
+    type_label = type_labels.get(lead.type, escape(lead.type))
+    phone_row = f"<tr><td style='padding:4px 0;color:#888;font-size:13px;width:90px'>Phone</td><td style='padding:4px 0;font-size:13px;color:#00102e'>{escape(lead.phone)}</td></tr>" if lead.phone else ""
+    message_block = f"""
+      <div style="background:#f5f3ef;border-radius:8px;padding:14px 16px;margin:16px 0">
+        <p style="margin:0;color:#555;font-size:13.5px;line-height:1.6;white-space:pre-wrap">{escape(lead.message)}</p>
+      </div>""" if lead.message else ""
+    property_block = ""
+    if property_info:
+        prop_title = escape(property_info.get("title", ""))
+        prop_url = f"{settings.landing_url}/listing/{property_info.get('id', '')}"
+        property_block = f"""
+      <p style="margin:16px 0 6px;font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em">Property</p>
+      <a href="{prop_url}" style="color:#0b63ab;font-size:13.5px;font-weight:600;text-decoration:none">{prop_title} &rarr;</a>"""
+    dashboard_url = f"{settings.landing_url}/dashboard"
+    body = f"""
+      <h2 style="margin:0 0 4px;color:#00102e;font-size:20px;font-weight:700">You have a new lead</h2>
+      <p style="margin:0 0 20px;color:#888;font-size:13px">Hi {escape(realtor_name)}, a lead has been assigned to you.</p>
+      <p style="margin:0 0 6px;font-size:12px;font-weight:700;color:#888;text-transform:uppercase;letter-spacing:.06em">{type_label}</p>
+      <table style="border-collapse:collapse;width:100%;margin-bottom:4px">
+        <tr><td style="padding:4px 0;color:#888;font-size:13px;width:90px">Name</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(lead.name)}</td></tr>
+        <tr><td style="padding:4px 0;color:#888;font-size:13px">Email</td><td style="padding:4px 0;font-size:13px;color:#00102e"><a href="mailto:{escape(lead.email)}" style="color:#0b63ab">{escape(lead.email)}</a></td></tr>
+        {phone_row}
+      </table>
+      {message_block}
+      {property_block}
+      <table cellpadding="0" cellspacing="0" style="margin-top:24px;margin-bottom:8px">
+        <tr><td>
+          <a href="{dashboard_url}" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:13.5px;padding:11px 26px;border-radius:8px">
+            View Lead &rarr;
+          </a>
+        </td></tr>
+      </table>
+    """
+    _send(to_email, f"New lead assigned to you — {lead.name}", _email_wrap("Lead assigned", body))
+
+
 def _logo_src() -> str:
     # White version for use on the coral header
     base = settings.logo_url or f"{settings.landing_url}/iLoveDRRealty_White.png"

@@ -13,9 +13,10 @@ from models.listing import Listing
 from utils.auth import get_current_user, get_optional_user
 from utils.permission import require_admin
 from utils.limiter import limiter
-from utils.email import send_upgrade_approved_email, send_realtor_assigned_owner_email
+from utils.email import send_upgrade_approved_email, send_realtor_assigned_owner_email, send_lead_notification, send_realtor_lead_assigned_email
 from utils import ghl
 from config import settings
+from models.site_settings import SiteSettings
 
 router = APIRouter(tags=["leads"])
 
@@ -147,6 +148,13 @@ def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadR
     )
 
 
+def _get_notify_email(db: Session) -> str:
+    row = db.query(SiteSettings).filter(SiteSettings.id == 1).first()
+    if row and row.data and row.data.get("notify_email"):
+        return row.data["notify_email"]
+    return settings.notify_email
+
+
 # ── Public endpoints ──────────────────────────────────────────────────────────
 
 @router.post("/leads", status_code=201)
@@ -185,6 +193,10 @@ def create_lead(
                 "listing_type": listing.type,
             }
     ghl.create_contact(lead, property_info, db)
+    try:
+        send_lead_notification(lead, property_info, notify_email=_get_notify_email(db))
+    except Exception:
+        pass
 
     return {"id": str(lead.id), "status": lead.status}
 
@@ -208,6 +220,10 @@ def capture_lead(
     db.add(lead)
     db.commit()
     db.refresh(lead)
+    try:
+        send_lead_notification(lead, notify_email=_get_notify_email(db))
+    except Exception:
+        pass
     return {"id": str(lead.id), "status": "new"}
 
 
@@ -310,6 +326,22 @@ def admin_assign_lead(
             owner.role = "owner"
             owner_upgraded = owner
     db.commit()
+
+    # Notify assigned realtor
+    try:
+        notify_property_info = None
+        if lead.property_id:
+            notify_listing = db.query(Listing).filter(Listing.id == lead.property_id).first()
+            if notify_listing:
+                notify_property_info = {"id": str(notify_listing.id), "title": notify_listing.title}
+        send_realtor_lead_assigned_email(
+            realtor.email,
+            realtor.display_name or realtor.email,
+            lead,
+            notify_property_info,
+        )
+    except Exception:
+        pass
 
     # Notify both parties after commit
     if owner_upgraded is not None:
