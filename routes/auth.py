@@ -391,6 +391,27 @@ def get_my_agent(user=Depends(get_current_user), db: Session = Depends(get_db)):
     }
 
 
+@router.put("/me/deactivate", status_code=204)
+def deactivate_account(response: Response, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user.status = "suspended"
+    db.commit()
+    secure = settings.environment == "production"
+    response.delete_cookie(
+        key="ildr_token",
+        path="/",
+        samesite="none" if secure else "lax",
+        secure=secure,
+        domain=settings.cookie_domain or None,
+    )
+
+
+@router.post("/me/delete-request", status_code=204)
+def request_account_deletion(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    user.deletion_requested_at = datetime.now(timezone.utc)
+    db.commit()
+    logger.info("Deletion requested for user %s", user.id)
+
+
 @router.post("/logout")
 def logout(response: Response):
     response.delete_cookie(

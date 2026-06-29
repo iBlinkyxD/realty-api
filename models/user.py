@@ -28,3 +28,4 @@ class User(Base):
     verification_attempts = Column(sqlalchemy.Integer, nullable=False, server_default="0")
     last_code_sent_at = Column(TIMESTAMP(timezone=True), nullable=True)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())
+    deletion_requested_at = Column(TIMESTAMP(timezone=True), nullable=True)
