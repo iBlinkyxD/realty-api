@@ -61,9 +61,9 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
                     len(raw_body), request.headers.get("content-type"))
         return {"received": True}
 
-    log.warning("GHL webhook payload keys=%s contactId=%s tags=%s",
+    log.warning("GHL webhook payload keys=%s contact_id=%r tags=%s",
                 list(payload.keys()),
-                payload.get("contactId") or payload.get("id"),
+                payload.get("contact_id"),
                 payload.get("tags"))
 
     contact_id: str | None = (
