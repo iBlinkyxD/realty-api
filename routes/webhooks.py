@@ -57,10 +57,14 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
     try:
         payload = await request.json()
     except Exception:
-        log.warning("GHL webhook: malformed JSON body=%s", raw_body[:500])
+        log.warning("GHL webhook: malformed JSON body_len=%d content_type=%s",
+                    len(raw_body), request.headers.get("content-type"))
         return {"received": True}
 
-    log.info("GHL webhook payload: %s", payload)
+    log.info("GHL webhook payload keys=%s contactId=%s tags=%s",
+             list(payload.keys()),
+             payload.get("contactId") or payload.get("id"),
+             payload.get("tags"))
 
     contact_id: str | None = payload.get("contactId") or payload.get("id")
     if not contact_id:
