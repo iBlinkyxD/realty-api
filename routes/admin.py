@@ -458,7 +458,9 @@ def change_user_role(user_id: str, body: ChangeRoleBody, admin=Depends(require_a
         raise HTTPException(status_code=400, detail="You cannot change your own role")
     if target.role == "admin":
         raise HTTPException(status_code=403, detail="Cannot change the role of an admin account")
+    old_role = target.role
     target.role = body.role
+    _log(db, "role_changed", f"User role changed: {target.email} {old_role} -> {body.role}", actor_id=admin.id)
     db.commit()
 
 
