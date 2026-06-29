@@ -66,13 +66,18 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
                 payload.get("contactId") or payload.get("id"),
                 payload.get("tags"))
 
-    contact_id: str | None = payload.get("contactId") or payload.get("id")
+    contact_id: str | None = (
+        payload.get("contact_id") or payload.get("contactId") or payload.get("id")
+    )
     if not contact_id:
         log.warning("GHL webhook: no contactId in payload")
         return {"received": True}
 
-    # Determine which of our lead-status tags (if any) are present in the event
-    incoming_tags: list[str] = payload.get("tags") or []
+    # GHL Automation webhooks send tags as a comma-separated string; Private Integration sends a list
+    raw_tags = payload.get("tags") or []
+    if isinstance(raw_tags, str):
+        raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
+    incoming_tags: list[str] = raw_tags
     matched_status: str | None = None
     for tag in incoming_tags:
         if tag in _STATUS_SET:
