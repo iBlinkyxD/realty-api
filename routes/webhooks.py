@@ -17,6 +17,10 @@ router = APIRouter(prefix="/webhooks", tags=["webhooks"])
 
 _STATUS_SET = frozenset(TAG_TO_STATUS.keys())  # "lead-new", "lead-assigned", etc.
 
+# GHL sends ALL tags on the contact, not just the newly added one.
+# Pick the most advanced status so earlier tags don't overwrite progress.
+_STATUS_PRIORITY: dict[str, int] = {"new": 0, "assigned": 1, "contacted": 2, "closed": 3}
+
 
 def _verify_signature(body: bytes, sig_header: str | None, query_key: str | None) -> bool:
     """
@@ -78,11 +82,13 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
     if isinstance(raw_tags, str):
         raw_tags = [t.strip() for t in raw_tags.split(",") if t.strip()]
     incoming_tags: list[str] = raw_tags
-    matched_status: str | None = None
-    for tag in incoming_tags:
-        if tag in _STATUS_SET:
-            matched_status = TAG_TO_STATUS[tag]
-            break  # take the first match
+
+    # GHL sends ALL tags on the contact — pick the most advanced status present
+    matched_status: str | None = max(
+        (TAG_TO_STATUS[tag] for tag in incoming_tags if tag in _STATUS_SET),
+        key=lambda s: _STATUS_PRIORITY.get(s, -1),
+        default=None,
+    )
 
     if not matched_status:
         log.warning("GHL webhook: no matching status tag in %s", incoming_tags)
