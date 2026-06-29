@@ -442,6 +442,26 @@ def unsuspend_user(user_id: str, user=Depends(require_admin), db: Session = Depe
     db.commit()
 
 
+_CHANGEABLE_ROLES = {"buyer", "owner", "realtor"}
+
+class ChangeRoleBody(BaseModel):
+    role: str
+
+@router.put("/users/{user_id}/role", status_code=204)
+def change_user_role(user_id: str, body: ChangeRoleBody, admin=Depends(require_admin), db: Session = Depends(get_db)):
+    if body.role not in _CHANGEABLE_ROLES:
+        raise HTTPException(status_code=422, detail="Role must be buyer, owner, or realtor")
+    target = db.query(User).filter(User.id == UUID(user_id)).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if str(target.id) == str(admin.id):
+        raise HTTPException(status_code=400, detail="You cannot change your own role")
+    if target.role == "admin":
+        raise HTTPException(status_code=403, detail="Cannot change the role of an admin account")
+    target.role = body.role
+    db.commit()
+
+
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
 @router.get("/stats")
