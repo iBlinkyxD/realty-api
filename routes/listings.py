@@ -37,7 +37,7 @@ MAX_FILES = 25
 async def upload_images(
     request: Request,
     files: List[UploadFile] = File(...),
-    user=Depends(require_role("realtor", "admin")),
+    user=Depends(require_role("realtor", "admin", "owner")),
 ):
     if len(files) > MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_FILES} images allowed")
@@ -136,11 +136,17 @@ def get_deal_listings(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=ListingResponse, status_code=201)
-def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "admin")), db: Session = Depends(get_db)):
+def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "admin", "owner")), db: Session = Depends(get_db)):
+    if user.role == "owner" and body.transaction != "rent":
+        raise HTTPException(status_code=422, detail="Owners may only submit rental listings.")
+    extra: dict = {}
+    if user.role == "owner":
+        extra["owner_id"] = user.id
     listing = Listing(
         **body.model_dump(),
         submitted_by=user.id,
         status="active" if user.role == "admin" else "pending_approval",
+        **extra,
     )
     db.add(listing)
     db.flush()  # get listing.id before commit
@@ -218,6 +224,10 @@ def update_listing(listing_id: UUID, body: ListingUpdate, user=Depends(get_curre
 
     if listing.submitted_by != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if user.role == "owner" and update_data.get("transaction") and update_data["transaction"] != "rent":
+        raise HTTPException(status_code=422, detail="Owners may only submit rental listings.")
 
     # Active listings edited by realtors go into a pending-edit queue instead of
     # updating in place so the live listing is not disrupted until admin approves.

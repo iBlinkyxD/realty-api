@@ -370,7 +370,7 @@ def refresh_token(response: Response, user: User = Depends(get_current_user)):
 @router.get("/me/agent")
 def get_my_agent(user=Depends(get_current_user), db: Session = Depends(get_db)):
     """Returns the realtor assigned to the current owner (direct assignment takes priority, falls back to lead)."""
-    _none = {"realtor_id": None, "realtor_name": None, "realtor_email": None, "realtor_phone": None}
+    _none = {"realtor_id": None, "realtor_name": None, "realtor_email": None, "realtor_phone": None, "realtor_calendly_url": None}
     if user.role != "owner":
         return _none
     # Direct assignment (set by admin or auto-set when a lead is assigned)
@@ -395,6 +395,7 @@ def get_my_agent(user=Depends(get_current_user), db: Session = Depends(get_db)):
         "realtor_name": realtor.display_name or realtor.email,
         "realtor_email": realtor.email,
         "realtor_phone": realtor.phone,
+        "realtor_calendly_url": realtor.calendly_url,
     }
 
 
