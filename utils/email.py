@@ -178,6 +178,7 @@ def send_realtor_lead_assigned_email(
     realtor_name: str,
     lead,
     property_info: dict | None = None,
+    calendly_url: str | None = None,
 ) -> None:
     type_labels = {
         "property_inquiry": "Property Inquiry",
@@ -218,6 +219,19 @@ def send_realtor_lead_assigned_email(
         </td></tr>
       </table>
     """
+    calendly_block = f"""
+<table cellpadding="0" cellspacing="0" style="margin-bottom:16px">
+  <tr><td>
+    <a href="{calendly_url}" style="display:inline-block;background:#006BFF;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 26px;border-radius:8px">
+      Schedule a Meeting &#8594;
+    </a>
+  </td></tr>
+</table>
+<p style="margin:0 0 20px;color:#888;font-size:12.5px;line-height:1.6">
+  Use your Calendly link above to schedule a meeting with this lead.
+</p>
+""" if calendly_url else ""
+    body = body + calendly_block
     _send(to_email, f"New lead assigned to you — {lead.name}", _email_wrap("Lead assigned", body))
 
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, model_validator, Field
+from pydantic import BaseModel, model_validator, Field, EmailStr
 from typing import Optional
 from datetime import date, datetime
 from uuid import UUID
@@ -10,6 +10,10 @@ class BookingCreate(BaseModel):
     check_out: date
     guests: int = Field(default=1, ge=1, le=20)
     notes: Optional[str] = Field(default=None, max_length=1000)
+    # Guest contact fields — required when not authenticated
+    name: Optional[str] = Field(default=None, max_length=200)
+    email: Optional[EmailStr] = None
+    phone: Optional[str] = Field(default=None, max_length=50)
 
     @model_validator(mode='after')
     def validate_dates(self):

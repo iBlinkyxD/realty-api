@@ -21,7 +21,7 @@ from schemas.listing import ListingCreate, ListingUpdate, ListingResponse
 from schemas.deal_request import DealRequestCreate
 from utils.auth import get_current_user
 from utils.permission import require_role
-from utils.storage import upload_image
+from utils.storage import upload_image, upload_pdf
 from utils.limiter import limiter
 
 router = APIRouter(prefix="/listings", tags=["listings"])
@@ -58,6 +58,26 @@ async def upload_images(
         urls.append(url)
 
     return {"urls": urls}
+
+
+@router.post("/upload-agreement")
+@limiter.limit("10/minute")
+async def upload_agreement(
+    request: Request,
+    file: UploadFile = File(...),
+    user=Depends(require_role("realtor", "admin")),
+):
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Agreement PDF must be under 10 MB")
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=415, detail="Only PDF files are accepted")
+    try:
+        url = upload_pdf(data, str(user.id))
+    except Exception:
+        logger.exception("PDF upload failed for user %s", user.id)
+        raise HTTPException(status_code=500, detail="PDF upload failed. Please try again.")
+    return {"url": url}
 
 
 @router.get("", response_model=List[ListingResponse])

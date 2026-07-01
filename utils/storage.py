@@ -59,3 +59,15 @@ def upload_avatar(file_bytes: bytes, content_type: str, user_id: str, old_url: s
             except Exception:
                 pass
     return new_url
+
+
+def upload_pdf(file_bytes: bytes, user_id: str) -> str:
+    """Upload a co-listing agreement PDF to Supabase Storage and return its public URL."""
+    path = f"documents/{user_id}/{uuid.uuid4()}.pdf"
+    client = _get_client()
+    client.storage.from_(settings.storage_bucket).upload(
+        path,
+        file_bytes,
+        {"content-type": "application/pdf", "upsert": "false"},
+    )
+    return client.storage.from_(settings.storage_bucket).get_public_url(path)

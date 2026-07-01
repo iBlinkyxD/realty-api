@@ -1,6 +1,6 @@
 import uuid
 import sqlalchemy
-from sqlalchemy import Column, Text, Boolean, Integer, Enum as SAEnum, TIMESTAMP, func
+from sqlalchemy import Column, Text, Boolean, Integer, Enum as SAEnum, TIMESTAMP, ForeignKey, func
 from sqlalchemy.dialects.postgresql import UUID
 from database import Base
 
@@ -31,3 +31,5 @@ class User(Base):
     deletion_requested_at = Column(TIMESTAMP(timezone=True), nullable=True)
     password_reset_token = Column(Text, nullable=True, index=True)
     password_reset_expires = Column(TIMESTAMP(timezone=True), nullable=True)
+    calendly_url = Column(Text, nullable=True)
+    assigned_realtor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)

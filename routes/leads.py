@@ -268,9 +268,9 @@ def realtor_update_lead_status(
     db: Session = Depends(get_db),
 ):
     _require_realtor(user)
-    allowed = {"contacted", "closed"}
+    allowed = {"schedule", "contacted", "closed"}
     if body.status not in allowed:
-        raise HTTPException(status_code=400, detail="Realtors can only set status to contacted or closed")
+        raise HTTPException(status_code=400, detail="Realtors can only set status to schedule, contacted, or closed")
     lead = db.query(Lead).filter(Lead.id == UUID(lead_id)).first()
     if not lead:
         raise HTTPException(status_code=404, detail="Lead not found")
@@ -328,6 +328,11 @@ def admin_assign_lead(
         if owner and owner.role == "buyer":
             owner.role = "owner"
             owner_upgraded = owner
+    # Mirror realtor assignment onto the submitting user so their "My Agent" card reflects it
+    if lead.from_user_id:
+        submitter = db.query(User).filter(User.id == lead.from_user_id).first()
+        if submitter and submitter.role in ("owner", "buyer"):
+            submitter.assigned_realtor_id = realtor.id
     db.commit()
 
     if lead.ghl_contact_id:
@@ -345,6 +350,7 @@ def admin_assign_lead(
             realtor.display_name or realtor.email,
             lead,
             notify_property_info,
+            calendly_url=getattr(realtor, 'calendly_url', None),
         )
     except Exception:
         pass
