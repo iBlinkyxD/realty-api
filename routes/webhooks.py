@@ -67,11 +67,6 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
                     len(raw_body), request.headers.get("content-type"))
         return {"received": True}
 
-    log.warning("GHL webhook payload keys=%s contact_id=%r tags=%s",
-                list(payload.keys()),
-                payload.get("contact_id"),
-                payload.get("tags"))
-
     contact_id: str | None = (
         payload.get("contact_id") or payload.get("contactId") or payload.get("id")
     )
@@ -93,7 +88,7 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
     )
 
     if not matched_status:
-        log.warning("GHL webhook: no matching status tag in %s", incoming_tags)
+        log.debug("GHL webhook: no status tag in %s — ignoring", incoming_tags)
         return {"received": True}
 
     lead: Lead | None = db.query(Lead).filter(Lead.ghl_contact_id == contact_id).first()

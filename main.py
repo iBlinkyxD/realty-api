@@ -185,5 +185,7 @@ def robots():
 
 
 @app.get("/health")
+@app.post("/health")
+@app.post("/")
 def health():
     return {"status": "ok"}
