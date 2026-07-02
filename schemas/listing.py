@@ -49,6 +49,7 @@ class ListingCreate(BaseModel):
     co_listing_status: Optional[str] = None
     price_per_day: Optional[Decimal] = None
     price_per_month: Optional[Decimal] = None
+    owner_paypal_email: Optional[str] = None
     co_listing_agreement_accepted: bool = False
     co_listing_agreement_url: Optional[str] = None
 
@@ -95,6 +96,7 @@ class ListingUpdate(BaseModel):
     co_listing_status: Optional[str] = None
     price_per_day: Optional[Decimal] = None
     price_per_month: Optional[Decimal] = None
+    owner_paypal_email: Optional[str] = None
     co_listing_agreement_accepted: Optional[bool] = None
     co_listing_agreement_url: Optional[str] = None
 
@@ -148,6 +150,7 @@ class ListingResponse(BaseModel):
     co_listing_status: Optional[str] = None
     price_per_day: Optional[Decimal] = None
     price_per_month: Optional[Decimal] = None
+    owner_paypal_email: Optional[str] = None
     co_listing_agreement_accepted: bool = False
     co_listing_agreement_url: Optional[str] = None
     leads_count: int = 0

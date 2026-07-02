@@ -190,6 +190,7 @@ def me(user: User = Depends(get_current_user)):
         "phone": user.phone,
         "avatar_url": user.avatar_url,
         "calendly_url": user.calendly_url,
+        "paypal_email": user.paypal_email,
         "has_password": user.password_hash is not None,
         "has_google": user.google_id is not None,
     }
@@ -230,6 +231,7 @@ def update_profile(request: Request, body: UpdateProfileRequest, user: User = De
     user.display_name = body.display_name.strip()
     user.phone = body.phone.strip() if body.phone else None
     user.calendly_url = body.calendly_url.strip() if body.calendly_url else None
+    user.paypal_email = body.paypal_email.strip() if body.paypal_email else None
     db.commit()
     db.refresh(user)
     return {"display_name": user.display_name, "phone": user.phone, "calendly_url": user.calendly_url}

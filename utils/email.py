@@ -302,7 +302,7 @@ def send_verification_email(to_email: str, code: str) -> None:
 
     import resend
     resend.api_key = settings.resend_api_key
-    resend.Emails.send({
+    resend.Emails.send({  # type: ignore[attr-defined]
         "from": settings.email_from,
         "to": to_email,
         "subject": "Your I Love DR Realty verification code",
@@ -371,3 +371,223 @@ def send_verification_email(to_email: str, code: str) -> None:
         </html>
         """,
     })
+
+
+def send_booking_submitted_email(
+    to_email: str,
+    guest_name: str,
+    listing_title: str,
+    check_in: str,
+    check_out: str,
+    guests: int,
+    total_price: float | None,
+    is_paypal: bool,
+) -> None:
+    payment_notice = ""
+    if is_paypal and total_price is not None:
+        payment_notice = f"""
+      <div style="background:#f0faf4;border:1px solid #b6e4c7;border-radius:10px;padding:14px 18px;margin-bottom:20px">
+        <p style="margin:0;color:#1f7a3d;font-size:13.5px;font-weight:600">Payment of ${total_price:,.2f} authorized</p>
+        <p style="margin:0;color:#555;font-size:13px;margin-top:4px">You won't be charged until the owner accepts your booking.</p>
+      </div>"""
+    body = f"""
+      <h2 style="margin:0 0 10px;color:#00102e;font-size:21px;font-weight:700">Booking request received!</h2>
+      <p style="margin:0 0 16px;color:#555;font-size:14.5px;line-height:1.6">
+        Hi {escape(guest_name)}, we've received your booking request for <strong>{escape(listing_title)}</strong>.
+        The owner will review and respond shortly.
+      </p>
+      {payment_notice}
+      <div style="background:#f5f3ef;border-radius:10px;padding:16px 20px;margin-bottom:28px">
+        <table style="border-collapse:collapse;width:100%">
+          <tr><td style="padding:4px 0;color:#888;font-size:13px;width:90px">Check-in</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(check_in)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Check-out</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(check_out)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Guests</td><td style="padding:4px 0;font-size:13px;color:#00102e">{guests}</td></tr>
+        </table>
+      </div>
+    """
+    _send(to_email, f"Booking request received — {listing_title}", _email_wrap("Booking request", body))
+
+
+def send_booking_confirmed_email(
+    to_email: str,
+    guest_name: str,
+    listing_title: str,
+    check_in: str,
+    check_out: str,
+    total_price: float | None,
+) -> None:
+    charge_row = (
+        f"<tr><td style='padding:4px 0;color:#888;font-size:13px;width:90px'>Total charged</td>"
+        f"<td style='padding:4px 0;font-size:13.5px;font-weight:700;color:#1f7a3d'>${total_price:,.2f}</td></tr>"
+        if total_price else ""
+    )
+    body = f"""
+      <h2 style="margin:0 0 10px;color:#00102e;font-size:21px;font-weight:700">Your booking is confirmed!</h2>
+      <p style="margin:0 0 16px;color:#555;font-size:14.5px;line-height:1.6">
+        Great news, {escape(guest_name)}! The owner has accepted your booking for <strong>{escape(listing_title)}</strong>.
+      </p>
+      <div style="background:#f0faf4;border:1px solid #b6e4c7;border-radius:10px;padding:16px 20px;margin-bottom:24px">
+        <table style="border-collapse:collapse;width:100%">
+          <tr><td style="padding:4px 0;color:#888;font-size:13px;width:90px">Check-in</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(check_in)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Check-out</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(check_out)}</td></tr>
+          {charge_row}
+        </table>
+      </div>
+      <p style="margin:0 0 28px;color:#555;font-size:13.5px;line-height:1.6">
+        Questions? Contact us at
+        <a href="mailto:support@ilovedrrealty.com" style="color:#0b63ab">support@ilovedrrealty.com</a>.
+      </p>
+    """
+    _send(to_email, f"Booking confirmed — {listing_title}", _email_wrap("Booking confirmed", body))
+
+
+def send_booking_declined_email(
+    to_email: str,
+    guest_name: str,
+    listing_title: str,
+    check_in: str,
+    check_out: str,
+) -> None:
+    body = f"""
+      <h2 style="margin:0 0 10px;color:#00102e;font-size:21px;font-weight:700">Booking request not accepted</h2>
+      <p style="margin:0 0 16px;color:#555;font-size:14.5px;line-height:1.6">
+        Hi {escape(guest_name)}, unfortunately the owner was unable to accept your booking request for
+        <strong>{escape(listing_title)}</strong> ({escape(check_in)} → {escape(check_out)}).
+        If a payment was authorized, it has been voided and you will not be charged.
+      </p>
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:28px">
+        <tr><td>
+          <a href="{settings.landing_url}" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:14.5px;padding:13px 30px;border-radius:8px">
+            Browse Other Listings &rarr;
+          </a>
+        </td></tr>
+      </table>
+    """
+    _send(to_email, f"Booking request not accepted — {listing_title}", _email_wrap("Booking declined", body))
+
+
+def send_owner_new_booking_email(
+    to_email: str,
+    owner_name: str,
+    guest_name: str,
+    listing_title: str,
+    check_in: str,
+    check_out: str,
+    guests: int,
+) -> None:
+    dashboard_url = f"{settings.landing_url}/dashboard"
+    body = f"""
+      <h2 style="margin:0 0 4px;color:#00102e;font-size:20px;font-weight:700">New booking request</h2>
+      <p style="margin:0 0 20px;color:#888;font-size:13px">Hi {escape(owner_name)}, someone wants to book your property.</p>
+      <div style="background:#f5f9ff;border:1px solid #d0e4f7;border-radius:10px;padding:16px 20px;margin-bottom:20px">
+        <table style="border-collapse:collapse;width:100%">
+          <tr><td style="padding:4px 0;color:#888;font-size:13px;width:90px">Guest</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(guest_name)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Listing</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(listing_title)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Check-in</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(check_in)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Check-out</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(check_out)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Guests</td><td style="padding:4px 0;font-size:13px;color:#00102e">{guests}</td></tr>
+        </table>
+      </div>
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:8px">
+        <tr><td>
+          <a href="{dashboard_url}" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:13.5px;padding:11px 26px;border-radius:8px">
+            Review Booking &rarr;
+          </a>
+        </td></tr>
+      </table>
+    """
+    _send(to_email, f"New booking request — {listing_title}", _email_wrap("New booking", body))
+
+
+def send_owner_payout_released_email(
+    to_email: str,
+    owner_name: str,
+    listing_title: str,
+    check_in: str,
+    check_out: str,
+    payout_amount: float,
+) -> None:
+    body = f"""
+      <h2 style="margin:0 0 10px;color:#00102e;font-size:21px;font-weight:700">Your payout has been sent!</h2>
+      <p style="margin:0 0 16px;color:#555;font-size:14.5px;line-height:1.6">
+        Hi {escape(owner_name)}, your rental income for <strong>{escape(listing_title)}</strong> has been released to your PayPal account.
+      </p>
+      <div style="background:#f0faf4;border:1px solid #b6e4c7;border-radius:10px;padding:16px 20px;margin-bottom:24px">
+        <table style="border-collapse:collapse;width:100%">
+          <tr><td style="padding:4px 0;color:#888;font-size:13px;width:90px">Listing</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(listing_title)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Dates</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(check_in)} → {escape(check_out)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Payout</td><td style="padding:4px 0;font-size:15px;font-weight:700;color:#1f7a3d">${payout_amount:,.2f}</td></tr>
+        </table>
+      </div>
+      <p style="margin:0 0 28px;color:#555;font-size:13px;line-height:1.6">
+        Funds typically arrive within 1–2 business days. Check your PayPal account for details.
+      </p>
+    """
+    _send(
+        to_email,
+        f"Payout sent — ${payout_amount:,.2f} for {listing_title}",
+        _email_wrap("Payout released", body),
+    )
+
+
+def send_admin_payout_failed_email(
+    to_email: str,
+    listing_title: str,
+    booking_id: str,
+    payout_email: str,
+    payout_amount: float,
+) -> None:
+    dashboard_url = f"{settings.landing_url}/dashboard"
+    body = f"""
+      <h2 style="margin:0 0 4px;color:#00102e;font-size:20px;font-weight:700">Automatic payout failed</h2>
+      <p style="margin:0 0 16px;color:#888;font-size:13px">The nightly payout cron could not release funds for the following booking.</p>
+      <div style="background:#fdf2f2;border:1px solid #f5dada;border-radius:10px;padding:16px 20px;margin-bottom:20px">
+        <table style="border-collapse:collapse;width:100%">
+          <tr><td style="padding:4px 0;color:#888;font-size:13px;width:110px">Booking ID</td><td style="padding:4px 0;font-size:12.5px;color:#00102e;word-break:break-all">{escape(booking_id)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Listing</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(listing_title)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">PayPal email</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(payout_email)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Amount</td><td style="padding:4px 0;font-size:13.5px;font-weight:700;color:#b91c1c">${payout_amount:,.2f}</td></tr>
+        </table>
+      </div>
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:8px">
+        <tr><td>
+          <a href="{dashboard_url}" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:13.5px;padding:11px 26px;border-radius:8px">
+            Review in Dashboard &rarr;
+          </a>
+        </td></tr>
+      </table>
+    """
+    _send(to_email, f"Payout failed — {listing_title}", _email_wrap("Payout failure alert", body))
+
+
+def send_payout_request_email(
+    to_email: str,
+    owner_name: str,
+    listing_title: str,
+    check_in: str,
+    check_out: str,
+    total_price: float,
+    payout_amount: float,
+) -> None:
+    dashboard_url = f"{settings.landing_url}/dashboard"
+    body = f"""
+      <h2 style="margin:0 0 4px;color:#00102e;font-size:20px;font-weight:700">Payout request received</h2>
+      <p style="margin:0 0 20px;color:#888;font-size:13px">An owner or realtor is requesting a manual payout for a failed booking payout.</p>
+      <div style="background:#f5f9ff;border:1px solid #d0e4f7;border-radius:10px;padding:16px 20px;margin-bottom:20px">
+        <table style="border-collapse:collapse;width:100%">
+          <tr><td style="padding:4px 0;color:#888;font-size:13px;width:100px">Owner</td><td style="padding:4px 0;font-size:13.5px;font-weight:600;color:#00102e">{escape(owner_name)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Listing</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(listing_title)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Dates</td><td style="padding:4px 0;font-size:13px;color:#00102e">{escape(check_in)} &rarr; {escape(check_out)}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Total</td><td style="padding:4px 0;font-size:13px;color:#00102e">${total_price:,.2f}</td></tr>
+          <tr><td style="padding:4px 0;color:#888;font-size:13px">Payout</td><td style="padding:4px 0;font-size:13.5px;font-weight:700;color:#1f7a3d">${payout_amount:,.2f}</td></tr>
+        </table>
+      </div>
+      <table cellpadding="0" cellspacing="0" style="margin-bottom:8px">
+        <tr><td>
+          <a href="{dashboard_url}" style="display:inline-block;background:#00102e;color:#ffffff;text-decoration:none;font-weight:700;font-size:13.5px;padding:11px 26px;border-radius:8px">
+            Go to Dashboard &rarr;
+          </a>
+        </td></tr>
+      </table>
+    """
+    _send(to_email, f"Payout request — {escape(listing_title)}", _email_wrap("Payout request", body))

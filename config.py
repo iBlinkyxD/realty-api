@@ -20,6 +20,11 @@ class Settings(BaseSettings):
     ghl_enabled: bool = False
     ghl_webhook_secret: str = ""
     notify_email: str = ""  # set to ilovedrrealty@gmail.com in Railway
+    paypal_client_id: str = ""
+    paypal_client_secret: str = ""
+    paypal_webhook_id: str = ""
+    paypal_mode: str = "sandbox"  # sandbox | live
+    platform_fee_pct: float = 0.20  # 20% platform cut taken before owner payout
 
     @property
     def origins_list(self) -> list[str]:

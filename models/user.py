@@ -33,3 +33,4 @@ class User(Base):
     password_reset_expires = Column(TIMESTAMP(timezone=True), nullable=True)
     calendly_url = Column(Text, nullable=True)
     assigned_realtor_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    paypal_email = Column(Text, nullable=True)

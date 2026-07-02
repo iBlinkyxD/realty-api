@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session, aliased
 from typing import List, Optional
 from uuid import UUID
 
+from models.booking import Booking
+from schemas.booking import BookingResponse
+
 from config import settings
 from database import get_db
 from models.activity_log import ActivityLog
@@ -663,4 +666,48 @@ def get_activity_log(limit: int = Query(20, le=50), user=Depends(require_admin),
             "created_at": e.created_at,
         }
         for e in entries
+    ]
+
+
+@router.get("/bookings", response_model=List[BookingResponse])
+def get_all_bookings(
+    user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: all bookings across all listings, newest check-out first."""
+    Owner = aliased(User)
+    rows = (
+        db.query(Booking, Listing, User, Owner)
+        .join(Listing, Listing.id == Booking.listing_id)
+        .outerjoin(User, User.id == Booking.buyer_id)
+        .outerjoin(Owner, Owner.id == Listing.owner_id)
+        .order_by(Booking.created_at.desc())
+        .all()
+    )
+    return [
+        BookingResponse(
+            id=str(b.id),
+            listing_id=str(b.listing_id),
+            listing_title=listing.title,
+            listing_location=listing.location,
+            listing_images=listing.images or [],
+            check_in=str(b.check_in),
+            check_out=str(b.check_out),
+            guests=b.guests,
+            total_price=float(b.total_price) if b.total_price else None,
+            notes=b.notes,
+            status=b.status,
+            created_at=b.created_at,
+            guest_name=guest.display_name if guest else b.guest_name,
+            guest_email=guest.email if guest else b.guest_email,
+            guest_phone=guest.phone if guest else None,
+            ghl_contact_url=None,
+            payment_status=b.payment_status,
+            payout_status=b.payout_status,
+            booked_price_per_day=float(b.booked_price_per_day) if b.booked_price_per_day else None,
+            platform_fee=float(b.platform_fee) if b.platform_fee else None,
+            payout_amount=float(b.payout_amount) if b.payout_amount else None,
+            owner_name=owner.display_name if owner else None,
+        )
+        for b, listing, guest, owner in rows
     ]

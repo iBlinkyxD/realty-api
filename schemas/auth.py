@@ -48,6 +48,7 @@ class UpdateProfileRequest(BaseModel):
     display_name: str = Field(min_length=1, max_length=100)
     phone: Optional[str] = Field(default=None, max_length=30)
     calendly_url: Optional[str] = Field(default=None, max_length=500)
+    paypal_email: Optional[str] = Field(default=None, max_length=255)
 
 
 class ChangePasswordRequest(BaseModel):

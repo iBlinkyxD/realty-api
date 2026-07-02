@@ -63,6 +63,7 @@ class Listing(Base):
     co_listing_status           = Column(Text)
     price_per_day              = Column(Numeric(12, 2))
     price_per_month            = Column(Numeric(12, 2))
+    owner_paypal_email         = Column(Text)
     co_listing_agreement_accepted = Column(Boolean, nullable=False, server_default="false")
     co_listing_agreement_url   = Column(Text)
     created_at = Column(TIMESTAMP(timezone=True), nullable=False, server_default=func.now())

@@ -10,6 +10,7 @@ from database import get_db
 from models.lead import Lead
 from models.user import User
 from models.listing import Listing
+from models.booking import Booking
 from utils.auth import get_current_user, get_optional_user
 from utils.permission import require_admin
 from utils.limiter import limiter
@@ -43,6 +44,8 @@ class LeadResponse(BaseModel):
     property_title: Optional[str]
     listing_realtor_id: Optional[str]
     listing_realtor_name: Optional[str]
+    listing_owner_id: Optional[str]
+    listing_owner_name: Optional[str]
     from_user_id: Optional[str]
     from_user_code: Optional[str]
     from_user_name: Optional[str]
@@ -55,6 +58,7 @@ class LeadResponse(BaseModel):
     contacted_at: Optional[datetime]
     closed_at: Optional[datetime]
     ghl_contact_url: Optional[str]
+    booking_status: Optional[str] = None
 
     class Config:
         from_attributes = True
@@ -89,6 +93,8 @@ def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadR
     property_title = None
     listing_realtor_id = None
     listing_realtor_name = None
+    listing_owner_id = None
+    listing_owner_name = None
     if lead.property_id:
         listing = db.query(Listing).filter(Listing.id == lead.property_id).first()
         if listing:
@@ -98,6 +104,11 @@ def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadR
                 if agent and agent.role in ("realtor", "admin"):
                     listing_realtor_id = str(agent.id)
                     listing_realtor_name = agent.display_name or agent.email
+            if listing.owner_id:
+                owner = db.query(User).filter(User.id == listing.owner_id).first()
+                if owner and owner.role == "owner":
+                    listing_owner_id = str(owner.id)
+                    listing_owner_name = owner.display_name or owner.email
 
     assigned_realtor_name = None
     if lead.assigned_realtor_id:
@@ -114,6 +125,12 @@ def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadR
             from_user_code = str(from_user.user_code) if from_user.user_code is not None else None
             from_user_name = from_user.display_name or from_user.email
             from_user_avatar_url = from_user.avatar_url
+
+    booking_status = None
+    if lead.type == "booking":
+        booking = db.query(Booking).filter(Booking.lead_id == lead.id).first()
+        if booking:
+            booking_status = booking.status
 
     ghl_contact_url = None
     if include_ghl and lead.ghl_contact_id and settings.ghl_location_id:
@@ -133,6 +150,8 @@ def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadR
         property_title=property_title,
         listing_realtor_id=listing_realtor_id,
         listing_realtor_name=listing_realtor_name,
+        listing_owner_id=listing_owner_id,
+        listing_owner_name=listing_owner_name,
         from_user_id=str(lead.from_user_id) if lead.from_user_id else None,
         from_user_code=from_user_code,
         from_user_name=from_user_name,
@@ -145,6 +164,7 @@ def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadR
         contacted_at=lead.contacted_at,
         closed_at=lead.closed_at,
         ghl_contact_url=ghl_contact_url,
+        booking_status=booking_status,
     )
 
 

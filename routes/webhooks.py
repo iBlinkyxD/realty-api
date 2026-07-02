@@ -8,8 +8,10 @@ from fastapi import Depends
 
 from config import settings
 from database import get_db
+from models.booking import Booking
 from models.lead import Lead
 from utils.ghl import TAG_TO_STATUS
+import services.paypal as paypal_svc
 
 log = logging.getLogger(__name__)
 
@@ -117,4 +119,65 @@ async def ghl_webhook(request: Request, db: Session = Depends(get_db)):
 
     db.commit()
     log.info("GHL webhook: lead %s status %s -> %s", lead.id, old_status, matched_status)
+    return {"received": True}
+
+
+@router.post("/paypal", status_code=200)
+async def paypal_webhook(request: Request, db: Session = Depends(get_db)):
+    """
+    Receive PayPal webhook events and keep booking payment/payout status in sync.
+    Signature verification is performed before any DB writes.
+    """
+    raw_body = await request.body()
+    headers = dict(request.headers)
+
+    if not paypal_svc.verify_webhook_signature(headers, raw_body):
+        log.warning("PayPal webhook: invalid signature")
+        raise HTTPException(status_code=401, detail="Invalid signature")
+
+    try:
+        payload = await request.json()
+    except Exception:
+        return {"received": True}
+
+    event_type: str = payload.get("event_type", "")
+    resource: dict = payload.get("resource", {})
+    log.info("PayPal webhook: event_type=%s", event_type)
+
+    if event_type == "PAYMENT.AUTHORIZATION.VOIDED":
+        auth_id = resource.get("id")
+        if auth_id:
+            booking = db.query(Booking).filter(Booking.paypal_authorization_id == auth_id).first()
+            if booking and booking.payment_status != "voided":
+                booking.payment_status = "voided"
+                db.commit()
+
+    elif event_type == "PAYMENT.CAPTURE.COMPLETED":
+        capture_id = resource.get("id")
+        if capture_id:
+            booking = db.query(Booking).filter(Booking.paypal_capture_id == capture_id).first()
+            if booking and booking.payment_status != "captured":
+                booking.payment_status = "captured"
+                db.commit()
+
+    elif event_type == "PAYMENT.PAYOUTS-ITEM.SUCCEEDED":
+        sender_item_id = resource.get("payout_item", {}).get("sender_item_id")
+        if sender_item_id:
+            booking = db.query(Booking).filter(Booking.id == sender_item_id).first()
+            if booking and booking.payout_status != "paid":
+                booking.payout_status = "paid"
+                db.commit()
+
+    elif event_type == "PAYMENT.PAYOUTS-ITEM.FAILED":
+        sender_item_id = resource.get("payout_item", {}).get("sender_item_id")
+        if sender_item_id:
+            booking = db.query(Booking).filter(Booking.id == sender_item_id).first()
+            if booking:
+                booking.payout_status = "failed"
+                db.commit()
+        log.error("PayPal payout failed: %s", payload)
+
+    elif event_type == "CUSTOMER.DISPUTE.CREATED":
+        log.error("PayPal dispute created: %s", payload)
+
     return {"received": True}

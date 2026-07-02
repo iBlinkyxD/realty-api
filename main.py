@@ -36,11 +36,104 @@ async def _cleanup_pending_users() -> None:
             logger.exception("pending_users cleanup failed")
 
 
+async def _payout_cron() -> None:
+    """
+    Runs daily at 00:01 UTC.
+    Releases payouts to owners the day after check-out for confirmed bookings
+    where payment was captured and payout is still pending.
+    """
+    import services.paypal as paypal_svc
+    from datetime import date, timedelta
+    from models.booking import Booking
+    from models.listing import Listing
+    from models.user import User
+    from utils.email import send_owner_payout_released_email, send_admin_payout_failed_email
+
+    while True:
+        # Sleep until next 00:01 UTC
+        now = datetime.now(timezone.utc)
+        tomorrow = now.replace(hour=0, minute=1, second=0, microsecond=0)
+        if tomorrow <= now:
+            tomorrow += timedelta(days=1)
+        await asyncio.sleep((tomorrow - now).total_seconds())
+
+        if not settings.paypal_client_id:
+            continue
+
+        db = SessionLocal()
+        try:
+            yesterday = (date.today() - timedelta(days=1)).isoformat()
+            due = (
+                db.query(Booking, Listing)
+                .join(Listing, Listing.id == Booking.listing_id)
+                .filter(
+                    Booking.check_out == yesterday,
+                    Booking.payment_status == "captured",
+                    Booking.payout_status == "pending",
+                    Booking.status == "confirmed",
+                )
+                .all()
+            )
+            for booking, listing in due:
+                # Resolve payout email: listing-level override → owner user → submitter user
+                payout_email = listing.owner_paypal_email or None
+                owner_user = None
+                if not payout_email:
+                    owner_id = listing.owner_id or listing.submitted_by
+                    owner_user = db.query(User).filter(User.id == owner_id).first() if owner_id else None
+                    payout_email = owner_user.paypal_email if owner_user else None
+                if not payout_email:
+                    logger.warning("Payout skipped: no PayPal email for listing %s (booking %s)", listing.id, booking.id)
+                    continue
+                total = float(booking.total_price) if booking.total_price else 0
+                fee = round(total * settings.platform_fee_pct, 2)
+                payout = round(total - fee, 2)
+                try:
+                    paypal_svc.create_payout(payout_email, payout, str(booking.id))
+                    booking.platform_fee = fee
+                    booking.payout_amount = payout
+                    booking.payout_status = "paid"
+                    logger.info("Payout released for booking %s → %s ($%.2f after $%.2f fee)", booking.id, payout_email, payout, fee)
+                    if owner_user and owner_user.email:
+                        try:
+                            send_owner_payout_released_email(
+                                to_email=owner_user.email,
+                                owner_name=owner_user.display_name or owner_user.email,
+                                listing_title=listing.title or "listing",
+                                check_in=str(booking.check_in),
+                                check_out=str(booking.check_out),
+                                payout_amount=payout,
+                            )
+                        except Exception:
+                            logger.exception("Failed to send payout released email for booking %s", booking.id)
+                except Exception:
+                    booking.payout_status = "failed"
+                    logger.exception("Payout failed for booking %s", booking.id)
+                    if settings.notify_email:
+                        try:
+                            send_admin_payout_failed_email(
+                                to_email=settings.notify_email,
+                                listing_title=listing.title or "listing",
+                                booking_id=str(booking.id),
+                                payout_email=payout_email,
+                                payout_amount=payout,
+                            )
+                        except Exception:
+                            logger.exception("Failed to send payout failure email for booking %s", booking.id)
+            db.commit()
+        except Exception:
+            logger.exception("Payout cron error")
+        finally:
+            db.close()
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     cleanup_task = asyncio.create_task(_cleanup_pending_users())
+    payout_task = asyncio.create_task(_payout_cron())
     yield
     cleanup_task.cancel()
+    payout_task.cancel()
 
 
 app = FastAPI(title="I Love DR Realty API", lifespan=lifespan)
