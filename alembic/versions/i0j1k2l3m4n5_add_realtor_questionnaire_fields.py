@@ -15,9 +15,13 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column("upgrade_requests", sa.Column("years_experience", sa.Integer(), nullable=True))
-    op.add_column("upgrade_requests", sa.Column("specialties", sa.Text(), nullable=True))
-    op.add_column("upgrade_requests", sa.Column("bio", sa.Text(), nullable=True))
+    # IF NOT EXISTS so the chain can also run against a create_all-built schema
+    op.execute("""
+        ALTER TABLE upgrade_requests
+            ADD COLUMN IF NOT EXISTS years_experience INTEGER,
+            ADD COLUMN IF NOT EXISTS specialties      TEXT,
+            ADD COLUMN IF NOT EXISTS bio              TEXT;
+    """)
 
 
 def downgrade():

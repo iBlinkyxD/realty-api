@@ -15,13 +15,17 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('listings', sa.Column('co_listing_enabled', sa.Boolean(), nullable=False, server_default='false'))
-    op.add_column('listings', sa.Column('co_listing_brokerage', sa.Text(), nullable=True))
-    op.add_column('listings', sa.Column('co_listing_agent_name', sa.Text(), nullable=True))
-    op.add_column('listings', sa.Column('co_listing_agent_contact', sa.Text(), nullable=True))
-    op.add_column('listings', sa.Column('co_listing_commission_split', sa.Numeric(5, 2), nullable=True))
-    op.add_column('listings', sa.Column('co_listing_notes', sa.Text(), nullable=True))
-    op.add_column('listings', sa.Column('co_listing_status', sa.Text(), nullable=True))
+    # IF NOT EXISTS so the chain can also run against a create_all-built schema
+    op.execute("""
+        ALTER TABLE listings
+            ADD COLUMN IF NOT EXISTS co_listing_enabled          BOOLEAN NOT NULL DEFAULT false,
+            ADD COLUMN IF NOT EXISTS co_listing_brokerage        TEXT,
+            ADD COLUMN IF NOT EXISTS co_listing_agent_name       TEXT,
+            ADD COLUMN IF NOT EXISTS co_listing_agent_contact    TEXT,
+            ADD COLUMN IF NOT EXISTS co_listing_commission_split NUMERIC(5, 2),
+            ADD COLUMN IF NOT EXISTS co_listing_notes            TEXT,
+            ADD COLUMN IF NOT EXISTS co_listing_status           TEXT;
+    """)
 
 
 def downgrade() -> None:

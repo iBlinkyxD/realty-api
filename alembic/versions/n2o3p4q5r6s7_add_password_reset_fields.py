@@ -15,9 +15,16 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column('users', sa.Column('password_reset_token', sa.Text(), nullable=True))
-    op.create_index('ix_users_password_reset_token', 'users', ['password_reset_token'], unique=True)
-    op.add_column('users', sa.Column('password_reset_expires', sa.TIMESTAMP(timezone=True), nullable=True))
+    # IF NOT EXISTS so the chain can also run against a create_all-built schema
+    op.execute("""
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS password_reset_token   TEXT,
+            ADD COLUMN IF NOT EXISTS password_reset_expires TIMESTAMPTZ;
+    """)
+    op.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS ix_users_password_reset_token
+            ON users (password_reset_token);
+    """)
 
 
 def downgrade():

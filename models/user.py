@@ -1,6 +1,6 @@
 import uuid
 import sqlalchemy
-from sqlalchemy import Column, Text, Boolean, Integer, Enum as SAEnum, TIMESTAMP, func
+from sqlalchemy import Column, Text, Boolean, Integer, Sequence, Enum as SAEnum, TIMESTAMP, func
 from sqlalchemy.dialects.postgresql import UUID
 from database import Base
 
@@ -12,8 +12,11 @@ class User(Base):
     __tablename__ = "users"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    # Human-readable sequential ID assigned by DB sequence on insert; never null after migration
-    user_code = Column(Integer, nullable=True, unique=True)
+    # Human-readable sequential ID drawn from users_user_code_seq on insert.
+    # The Sequence() must stay declared here: without it SQLAlchemy sends an
+    # explicit NULL for this column, which overrides the DB-side DEFAULT and
+    # leaves every newly created user without a code.
+    user_code = Column(Integer, Sequence("users_user_code_seq"), nullable=True, unique=True)
     email = Column(Text, nullable=False, unique=True)
     password_hash = Column(Text, nullable=True)
     google_id = Column(Text, nullable=True, unique=True)

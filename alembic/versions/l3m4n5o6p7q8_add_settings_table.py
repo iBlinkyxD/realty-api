@@ -16,13 +16,15 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'settings',
-        sa.Column('id', sa.Integer(), primary_key=True, nullable=False),
-        sa.Column('data', JSONB(), nullable=False, server_default='{}'),
-        sa.Column('updated_at', sa.TIMESTAMP(timezone=True), nullable=False, server_default=sa.text('now()')),
-        sa.CheckConstraint('id = 1', name='settings_single_row'),
-    )
+    # IF NOT EXISTS so the chain can also run against a create_all-built schema
+    op.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            id         INTEGER PRIMARY KEY NOT NULL,
+            data       JSONB NOT NULL DEFAULT '{}',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+            CONSTRAINT settings_single_row CHECK (id = 1)
+        );
+    """)
     op.execute("INSERT INTO settings (id, data) VALUES (1, '{}') ON CONFLICT DO NOTHING")
 
 

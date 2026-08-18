@@ -26,7 +26,19 @@ def upgrade() -> None:
     """)
 
     op.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS is_deal BOOLEAN NOT NULL DEFAULT false")
-    op.execute("ALTER TABLE listings ADD COLUMN IF NOT EXISTS deal_discount_pct NUMERIC(5,2)")
+    # Only add the legacy column when its successor is absent. A create_all-built
+    # schema already has deal_discount_value, and adding deal_discount_pct next to
+    # it makes the rename in b2c3d4e5f6a7 collide with the existing column.
+    op.execute("""
+        DO $$ BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'listings' AND column_name = 'deal_discount_value'
+            ) THEN
+                ALTER TABLE listings ADD COLUMN IF NOT EXISTS deal_discount_pct NUMERIC(5,2);
+            END IF;
+        END $$;
+    """)
 
     op.execute("""
         CREATE TABLE IF NOT EXISTS deal_requests (

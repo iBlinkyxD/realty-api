@@ -14,10 +14,11 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        'users',
-        sa.Column('deletion_requested_at', sa.TIMESTAMP(timezone=True), nullable=True),
-    )
+    # IF NOT EXISTS so the chain can also run against a create_all-built schema
+    op.execute("""
+        ALTER TABLE users
+            ADD COLUMN IF NOT EXISTS deletion_requested_at TIMESTAMPTZ;
+    """)
 
 
 def downgrade():
