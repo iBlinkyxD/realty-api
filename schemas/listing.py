@@ -122,6 +122,7 @@ class ListingResponse(BaseModel):
     association_fee: Optional[Decimal] = None
     deposit_policy: Optional[str] = None
     images: List[str]
+    share_image_url: Optional[str] = None
     status: str
     rejection_reason: Optional[str] = None
     is_deal: bool = False

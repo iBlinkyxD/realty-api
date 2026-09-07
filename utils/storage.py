@@ -34,6 +34,19 @@ def upload_image(file_bytes: bytes, content_type: str, user_id: str) -> str:
     return client.storage.from_(settings.storage_bucket).get_public_url(path)
 
 
+def upload_share_image(file_bytes: bytes, listing_id: str) -> str:
+    """Upload a generated share-preview image to Supabase Storage at a stable,
+    per-listing path (overwriting any previous version) and return its public URL."""
+    path = f"share/{listing_id}.jpg"
+    client = _get_client()
+    client.storage.from_(settings.storage_bucket).upload(
+        path,
+        file_bytes,
+        {"content-type": "image/jpeg", "upsert": "true"},
+    )
+    return client.storage.from_(settings.storage_bucket).get_public_url(path)
+
+
 def _extract_storage_path(url: str, bucket: str) -> str | None:
     marker = f"/object/public/{bucket}/"
     idx = url.find(marker)

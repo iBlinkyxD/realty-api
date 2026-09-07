@@ -43,6 +43,7 @@ class Listing(Base):
     association_fee = Column(Numeric(12, 2))
     deposit_policy = Column(Text)
     images = Column(ARRAY(Text), server_default="{}")
+    share_image_url = Column(Text)
     status = Column(listing_status, nullable=False, server_default="pending_approval")
     submitted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))

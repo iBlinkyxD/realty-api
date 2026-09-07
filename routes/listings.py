@@ -22,6 +22,7 @@ from schemas.deal_request import DealRequestCreate
 from utils.auth import get_current_user
 from utils.permission import require_role
 from utils.storage import upload_image
+from utils.share_image import generate_share_image, maybe_regenerate_share_image
 from utils.limiter import limiter
 
 router = APIRouter(prefix="/listings", tags=["listings"])
@@ -125,6 +126,10 @@ def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "ad
     db.add(listing)
     db.flush()  # get listing.id before commit
     db.add(ListingEvent(listing_id=listing.id, event_type="submitted", actor_id=user.id))
+    try:
+        listing.share_image_url = generate_share_image(listing)
+    except Exception:
+        logger.exception("Share image generation failed for listing %s", listing.id)
     db.commit()
     db.refresh(listing)
     return listing
@@ -220,12 +225,14 @@ def update_listing(listing_id: UUID, body: ListingUpdate, user=Depends(get_curre
         return listing
 
     was_rejected = listing.status == "rejected"
-    for field, value in body.model_dump(exclude_none=True).items():
+    changed = body.model_dump(exclude_none=True)
+    for field, value in changed.items():
         setattr(listing, field, value)
     if was_rejected:
         listing.status = "pending_approval"
         listing.rejection_reason = None
     listing.updated_at = datetime.now(timezone.utc)
+    maybe_regenerate_share_image(listing, changed.keys())
     db.commit()
     db.refresh(listing)
     return listing

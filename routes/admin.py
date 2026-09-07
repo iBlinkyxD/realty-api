@@ -25,6 +25,7 @@ from schemas.listing_edit import ListingEditResponse, ListingEditRejectBody
 from schemas.listing_event import ListingEventResponse
 from utils.permission import require_admin
 from utils.security import hash_password
+from utils.share_image import generate_share_image, maybe_regenerate_share_image
 from utils.email import (
     send_listing_approved_email,
     send_listing_rejected_email,
@@ -226,6 +227,47 @@ def reject_listing(listing_id: UUID, body: ListingRejectBody, user=Depends(requi
             pass
 
 
+@router.post("/listings/{listing_id}/regenerate-share-image", status_code=204)
+def regenerate_share_image(listing_id: UUID, user=Depends(require_admin), db: Session = Depends(get_db)):
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    listing.share_image_url = generate_share_image(listing)
+    db.commit()
+
+
+class BulkRegenerateResponse(BaseModel):
+    processed: int
+    succeeded: int
+    failed_ids: List[str]
+
+
+@router.post("/listings/regenerate-share-images", response_model=BulkRegenerateResponse)
+def bulk_regenerate_share_images(
+    only_missing: bool = Query(True, description="Skip listings that already have a share_image_url"),
+    user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    q = db.query(Listing).filter(Listing.status != "archived")
+    if only_missing:
+        q = q.filter(Listing.share_image_url.is_(None))
+    listings = q.all()
+
+    failed_ids: List[str] = []
+    for listing in listings:
+        try:
+            listing.share_image_url = generate_share_image(listing)
+        except Exception:
+            failed_ids.append(str(listing.id))
+    db.commit()
+
+    return BulkRegenerateResponse(
+        processed=len(listings),
+        succeeded=len(listings) - len(failed_ids),
+        failed_ids=failed_ids,
+    )
+
+
 # ── Listing Edits ─────────────────────────────────────────────────────────────
 
 EDIT_FIELDS = [
@@ -305,6 +347,7 @@ def approve_listing_edit(edit_id: UUID, user=Depends(require_admin), db: Session
             setattr(listing, field, val)
 
     listing.updated_at = datetime.now(timezone.utc)
+    maybe_regenerate_share_image(listing, proposed.keys())
     edit.status = "approved"
     edit.reviewed_by = user.id
     edit.reviewed_at = datetime.now(timezone.utc)
