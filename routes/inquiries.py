@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
+from sqlalchemy import or_
 from typing import List
 
 from database import get_db
@@ -83,7 +84,7 @@ def get_inquiries_for_realtor(
     rows = (
         db.query(Inquiry, Listing)
         .join(Listing, Listing.id == Inquiry.listing_id)
-        .filter(Listing.submitted_by == user.id)
+        .filter(or_(Listing.submitted_by == user.id, Listing.assigned_realtor_id == user.id))
         .order_by(Inquiry.created_at.desc())
         .all()
     )

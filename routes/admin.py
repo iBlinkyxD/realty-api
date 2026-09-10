@@ -19,7 +19,7 @@ from models.user import User
 from models.deal_request import DealRequest
 from schemas.auth import CreateAdminUserBody
 from schemas.upgrade_request import UpgradeRequestAdminResponse, AdminRejectBody as UpgradeRejectBody
-from schemas.listing import ListingResponse, AdminListingResponse, AdminRejectBody as ListingRejectBody
+from schemas.listing import ListingResponse, AdminListingResponse, AdminRejectBody as ListingRejectBody, AdminAssignListingBody
 from schemas.deal_request import DealRequestResponse, DealRequestRejectBody
 from schemas.listing_edit import ListingEditResponse, ListingEditRejectBody
 from schemas.listing_event import ListingEventResponse
@@ -150,10 +150,12 @@ def reject_upgrade_request(req_id: UUID, body: UpgradeRejectBody, user=Depends(r
 def list_all_listings(status: Optional[str] = Query(None), user=Depends(require_admin), db: Session = Depends(get_db)):
     Submitter = aliased(User)
     Reviewer  = aliased(User)
+    AssignedRealtor = aliased(User)
     q = (
-        db.query(Listing, Submitter, Reviewer)
+        db.query(Listing, Submitter, Reviewer, AssignedRealtor)
         .join(Submitter, Submitter.id == Listing.submitted_by)
         .outerjoin(Reviewer, Reviewer.id == Listing.approved_by)
+        .outerjoin(AssignedRealtor, AssignedRealtor.id == Listing.assigned_realtor_id)
     )
     if status:
         q = q.filter(Listing.status == status)
@@ -166,9 +168,32 @@ def list_all_listings(status: Optional[str] = Query(None), user=Depends(require_
             reviewed_by_name=reviewer.display_name if reviewer else None,
             reviewed_by_email=reviewer.email if reviewer else None,
             reviewed_at=listing.approved_at,
+            assigned_realtor_name=assigned_realtor.display_name if assigned_realtor else None,
+            assigned_realtor_email=assigned_realtor.email if assigned_realtor else None,
         )
-        for listing, submitter, reviewer in rows
+        for listing, submitter, reviewer, assigned_realtor in rows
     ]
+
+
+@router.put("/listings/{listing_id}/assign", status_code=204)
+def assign_listing_realtor(listing_id: UUID, body: AdminAssignListingBody, user=Depends(require_admin), db: Session = Depends(get_db)):
+    listing = db.query(Listing).filter(Listing.id == listing_id).first()
+    if not listing:
+        raise HTTPException(status_code=404, detail="Listing not found")
+
+    if body.realtor_id:
+        realtor = db.query(User).filter(User.id == UUID(body.realtor_id), User.role.in_(["realtor", "admin"])).first()
+        if not realtor:
+            raise HTTPException(status_code=404, detail="Realtor not found")
+        listing.assigned_realtor_id = realtor.id
+        _log(db, "listing_assigned", f"Listing assigned to {realtor.display_name or realtor.email}: {listing.title}", actor_id=user.id)
+        _listing_event(db, listing.id, "realtor_assigned", actor_id=user.id, note=realtor.display_name or realtor.email)
+    else:
+        listing.assigned_realtor_id = None
+        _log(db, "listing_unassigned", f"Listing unassigned: {listing.title}", actor_id=user.id)
+        _listing_event(db, listing.id, "realtor_unassigned", actor_id=user.id)
+
+    db.commit()
 
 
 @router.post("/listings/{listing_id}/approve", status_code=204)

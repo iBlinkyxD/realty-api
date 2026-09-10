@@ -47,6 +47,7 @@ class Listing(Base):
     status = Column(listing_status, nullable=False, server_default="pending_approval")
     submitted_by = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
     owner_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
+    assigned_realtor_id = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     approved_by = Column(UUID(as_uuid=True), ForeignKey("users.id"))
     approved_at = Column(TIMESTAMP(timezone=True))
     rejection_reason = Column(Text)

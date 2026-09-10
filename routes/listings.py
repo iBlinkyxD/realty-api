@@ -79,7 +79,7 @@ def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session 
     if user.role == "owner":
         filter_cond = or_(Listing.submitted_by == user.id, Listing.owner_id == user.id)
     else:
-        filter_cond = Listing.submitted_by == user.id
+        filter_cond = or_(Listing.submitted_by == user.id, Listing.assigned_realtor_id == user.id)
     rows = (
         db.query(Listing, leads_subq.c.cnt, Submitter)
         .outerjoin(leads_subq, leads_subq.c.property_id == Listing.id)
@@ -137,18 +137,22 @@ def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "ad
 
 @router.get("/{listing_id}", response_model=ListingResponse)
 def get_listing(listing_id: UUID, db: Session = Depends(get_db)):
+    AssignedRealtor = aliased(User)
     row = (
-        db.query(Listing, User)
+        db.query(Listing, User, AssignedRealtor)
         .join(User, User.id == Listing.submitted_by)
+        .outerjoin(AssignedRealtor, AssignedRealtor.id == Listing.assigned_realtor_id)
         .filter(Listing.id == listing_id, Listing.status == "active")
         .first()
     )
     if not row:
         raise HTTPException(status_code=404, detail="Listing not found")
-    listing, submitter = row
+    listing, submitter, assigned_realtor = row
+    # The assigned realtor (if any) takes over as the public "Listed by" contact.
+    contact = assigned_realtor or submitter
     return ListingResponse(
         **{c.key: getattr(listing, c.key) for c in Listing.__table__.columns},
-        submitted_by_name=submitter.display_name,
+        submitted_by_name=contact.display_name,
     )
 
 
@@ -162,7 +166,7 @@ def submit_deal_request(
     listing = db.query(Listing).filter(Listing.id == listing_id).first()
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
-    if listing.submitted_by != user.id:
+    if listing.submitted_by != user.id and listing.assigned_realtor_id != user.id:
         raise HTTPException(status_code=403, detail="Not your listing")
     if listing.status != "active":
         raise HTTPException(status_code=400, detail="Listing must be active to submit a deal request")
@@ -201,7 +205,7 @@ def update_listing(listing_id: UUID, body: ListingUpdate, user=Depends(get_curre
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    if listing.submitted_by != user.id and user.role != "admin":
+    if listing.submitted_by != user.id and listing.assigned_realtor_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     # Active listings edited by realtors go into a pending-edit queue instead of
@@ -244,7 +248,7 @@ def archive_listing(listing_id: UUID, user=Depends(get_current_user), db: Sessio
     if not listing:
         raise HTTPException(status_code=404, detail="Listing not found")
 
-    if listing.submitted_by != user.id and user.role != "admin":
+    if listing.submitted_by != user.id and listing.assigned_realtor_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="Insufficient permissions")
 
     listing.status = "archived"

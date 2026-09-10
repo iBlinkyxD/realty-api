@@ -145,6 +145,7 @@ class ListingResponse(BaseModel):
     submitted_by_name: Optional[str] = None
     submitted_by_email: Optional[str] = None
     owner_id: Optional[uuid.UUID]
+    assigned_realtor_id: Optional[uuid.UUID] = None
 
     model_config = {"from_attributes": True}
 
@@ -155,9 +156,15 @@ class AdminListingResponse(ListingResponse):
     reviewed_by_name: Optional[str] = None
     reviewed_by_email: Optional[str] = None
     reviewed_at: Optional[datetime] = None
+    assigned_realtor_name: Optional[str] = None
+    assigned_realtor_email: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
 
 class AdminRejectBody(BaseModel):
     reason: str
+
+
+class AdminAssignListingBody(BaseModel):
+    realtor_id: Optional[str] = None

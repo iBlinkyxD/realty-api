@@ -93,8 +93,9 @@ def _build_response(lead: Lead, db: Session, include_ghl: bool = False) -> LeadR
         listing = db.query(Listing).filter(Listing.id == lead.property_id).first()
         if listing:
             property_title = listing.title
-            if listing.submitted_by:
-                agent = db.query(User).filter(User.id == listing.submitted_by).first()
+            agent_id = listing.assigned_realtor_id or listing.submitted_by
+            if agent_id:
+                agent = db.query(User).filter(User.id == agent_id).first()
                 if agent and agent.role in ("realtor", "admin"):
                     listing_realtor_id = str(agent.id)
                     listing_realtor_name = agent.display_name or agent.email
