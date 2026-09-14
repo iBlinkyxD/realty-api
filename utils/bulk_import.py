@@ -39,10 +39,15 @@ def parse_csv(raw: bytes) -> list[dict]:
     """Parses and structurally validates the uploaded CSV. Raises ValueError
     (caught by the route as a 400) for problems that should block the whole
     import before anything is written to the DB."""
-    try:
-        text = raw.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        raise ValueError("CSV file must be UTF-8 encoded")
+    text = None
+    for encoding in ("utf-8-sig", "cp1252"):
+        try:
+            text = raw.decode(encoding)
+            break
+        except UnicodeDecodeError:
+            continue
+    if text is None:
+        raise ValueError("CSV file must be UTF-8 or Windows-1252 (Excel \"CSV\") encoded")
 
     reader = csv.DictReader(io.StringIO(text))
     if not reader.fieldnames:
