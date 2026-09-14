@@ -43,9 +43,12 @@ class ListingCreate(BaseModel):
     co_listing_brokerage: Optional[str] = None
     co_listing_agent_name: Optional[str] = None
     co_listing_agent_contact: Optional[str] = None
+    co_listing_agent_email: Optional[str] = None
     co_listing_commission_split: Optional[Decimal] = None
     co_listing_notes: Optional[str] = None
     co_listing_status: Optional[str] = None
+    currency: Optional[str] = None
+    source_ref: Optional[str] = None
 
 
 class ListingUpdate(BaseModel):
@@ -84,9 +87,11 @@ class ListingUpdate(BaseModel):
     co_listing_brokerage: Optional[str] = None
     co_listing_agent_name: Optional[str] = None
     co_listing_agent_contact: Optional[str] = None
+    co_listing_agent_email: Optional[str] = None
     co_listing_commission_split: Optional[Decimal] = None
     co_listing_notes: Optional[str] = None
     co_listing_status: Optional[str] = None
+    currency: Optional[str] = None
 
 
 class ListingResponse(BaseModel):
@@ -133,9 +138,12 @@ class ListingResponse(BaseModel):
     co_listing_brokerage: Optional[str] = None
     co_listing_agent_name: Optional[str] = None
     co_listing_agent_contact: Optional[str] = None
+    co_listing_agent_email: Optional[str] = None
     co_listing_commission_split: Optional[Decimal] = None
     co_listing_notes: Optional[str] = None
     co_listing_status: Optional[str] = None
+    currency: str = "USD"
+    source_ref: Optional[str] = None
     leads_count: int = 0
     has_pending_deal_request: bool = False
     has_pending_edit: bool = False
@@ -168,3 +176,26 @@ class AdminRejectBody(BaseModel):
 
 class AdminAssignListingBody(BaseModel):
     realtor_id: Optional[str] = None
+
+
+class BulkImportRowResult(BaseModel):
+    row: int
+    source_ref: Optional[str] = None
+    status: str  # succeeded | skipped | failed
+    listing_id: Optional[uuid.UUID] = None
+    message: Optional[str] = None
+
+
+class BulkImportJobResponse(BaseModel):
+    id: uuid.UUID
+    status: str
+    total_rows: int
+    processed_rows: int
+    succeeded_count: int
+    skipped_count: int
+    failed_count: int
+    results: List[BulkImportRowResult] = []
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}

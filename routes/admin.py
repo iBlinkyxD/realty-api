@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from decimal import Decimal
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import func
 from sqlalchemy.orm import Session, aliased
@@ -8,7 +8,7 @@ from typing import List, Optional
 from uuid import UUID
 
 from config import settings
-from database import get_db
+from database import get_db, SessionLocal
 from models.activity_log import ActivityLog
 from models.site_settings import SiteSettings
 from models.upgrade_request import UpgradeRequest
@@ -17,15 +17,20 @@ from models.listing_edit import ListingEdit
 from models.listing_event import ListingEvent
 from models.user import User
 from models.deal_request import DealRequest
+from models.bulk_import_job import BulkImportJob
 from schemas.auth import CreateAdminUserBody
 from schemas.upgrade_request import UpgradeRequestAdminResponse, AdminRejectBody as UpgradeRejectBody
-from schemas.listing import ListingResponse, AdminListingResponse, AdminRejectBody as ListingRejectBody, AdminAssignListingBody
+from schemas.listing import (
+    ListingResponse, AdminListingResponse, AdminRejectBody as ListingRejectBody,
+    AdminAssignListingBody, BulkImportJobResponse,
+)
 from schemas.deal_request import DealRequestResponse, DealRequestRejectBody
 from schemas.listing_edit import ListingEditResponse, ListingEditRejectBody
 from schemas.listing_event import ListingEventResponse
 from utils.permission import require_admin
 from utils.security import hash_password
 from utils.share_image import generate_share_image, maybe_regenerate_share_image
+from utils.bulk_import import parse_csv, run_bulk_import
 from utils.email import (
     send_listing_approved_email,
     send_listing_rejected_email,
@@ -194,6 +199,41 @@ def assign_listing_realtor(listing_id: UUID, body: AdminAssignListingBody, user=
         _listing_event(db, listing.id, "realtor_unassigned", actor_id=user.id)
 
     db.commit()
+
+
+@router.post("/listings/bulk-import", response_model=BulkImportJobResponse, status_code=202)
+async def bulk_import_listings(
+    background_tasks: BackgroundTasks,
+    csv_file: UploadFile = File(...),
+    user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    raw = await csv_file.read()
+    try:
+        rows = parse_csv(raw)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    job = BulkImportJob(status="pending", total_rows=len(rows), created_by=user.id)
+    db.add(job)
+    db.commit()
+    db.refresh(job)
+
+    background_tasks.add_task(run_bulk_import, job.id, rows, user.id, SessionLocal)
+    return job
+
+
+@router.get("/listings/bulk-import", response_model=List[BulkImportJobResponse])
+def list_bulk_import_jobs(user=Depends(require_admin), db: Session = Depends(get_db)):
+    return db.query(BulkImportJob).order_by(BulkImportJob.created_at.desc()).limit(20).all()
+
+
+@router.get("/listings/bulk-import/{job_id}", response_model=BulkImportJobResponse)
+def get_bulk_import_job(job_id: UUID, user=Depends(require_admin), db: Session = Depends(get_db)):
+    job = db.query(BulkImportJob).filter(BulkImportJob.id == job_id).first()
+    if not job:
+        raise HTTPException(status_code=404, detail="Import job not found")
+    return job
 
 
 @router.post("/listings/{listing_id}/approve", status_code=204)
