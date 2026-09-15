@@ -3,7 +3,7 @@ import jwt
 from config import settings
 from models.user import User
 
-TOKEN_EXPIRE_HOURS = 1
+TOKEN_EXPIRE_HOURS = 24
 
 
 def create_access_token(user: User) -> str:
