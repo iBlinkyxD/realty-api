@@ -2,8 +2,8 @@ import logging
 import filetype
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, UploadFile, File
 from sqlalchemy.orm import Session, aliased
-from sqlalchemy import func
-from typing import List
+from sqlalchemy import and_, func, or_
+from typing import List, Optional
 from datetime import datetime, timezone
 from uuid import UUID
 
@@ -17,7 +17,7 @@ from models.inquiry import Inquiry
 from models.lead import Lead
 from models.user import User
 from models.deal_request import DealRequest
-from schemas.listing import ListingCreate, ListingUpdate, ListingResponse
+from schemas.listing import ListingCreate, ListingUpdate, ListingResponse, ListingPageResponse
 from schemas.deal_request import DealRequestCreate
 from utils.auth import get_current_user
 from utils.permission import require_role
@@ -61,14 +61,99 @@ async def upload_images(
     return {"urls": urls}
 
 
-@router.get("", response_model=List[ListingResponse])
-def get_active_listings(skip: int = 0, limit: int = Query(200, le=200), db: Session = Depends(get_db)):
-    return db.query(Listing).filter(Listing.status == "active").order_by(Listing.created_at.desc()).offset(skip).limit(limit).all()
+SORT_COLUMNS = {
+    "new":  lambda: Listing.created_at.desc(),
+    "low":  lambda: Listing.price.asc(),
+    "high": lambda: Listing.price.desc(),
+    "roi":  lambda: Listing.roi.desc(),
+}
 
 
-@router.get("/mine", response_model=List[ListingResponse])
-def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session = Depends(get_db)):
-    from sqlalchemy import or_
+def _apply_listing_filters(
+    query,
+    purpose: Optional[str] = None,
+    type: Optional[str] = None,
+    region: Optional[str] = None,
+    min_price: Optional[float] = None,
+    max_price: Optional[float] = None,
+    beds: Optional[int] = None,
+    min_roi: Optional[float] = None,
+    features: Optional[List[str]] = None,
+):
+    """Shared by the item query, the total count, and the aggregate (median/avg)
+    queries so they can never drift out of sync with each other."""
+    query = query.filter(Listing.status == "active")
+    if purpose == "rent":
+        query = query.filter(Listing.transaction == "rent")
+    elif purpose == "investment":
+        query = query.filter(Listing.roi >= 7)
+    if type and type != "All":
+        query = query.filter(Listing.type == type.lower())
+    if region:
+        query = query.filter(Listing.location.ilike(f"%{region}%"))
+    if beds is not None:
+        query = query.filter(Listing.bedrooms >= beds)
+    if min_roi:
+        query = query.filter(Listing.roi >= min_roi)
+    # Rent listings are exempt from the sale price filter, regardless of purpose.
+    price_conditions = [Listing.price >= (min_price or 0)]
+    if max_price is not None:
+        price_conditions.append(Listing.price <= max_price)
+    query = query.filter(or_(Listing.transaction == "rent", and_(*price_conditions)))
+    if features:
+        query = query.filter(Listing.features.op("@>")(features))
+    return query
+
+
+@router.get("", response_model=ListingPageResponse)
+def get_active_listings(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(24, ge=1, le=60),
+    purpose: Optional[str] = Query(None, description="rent | investment (omit for sale/all)"),
+    type: Optional[str] = Query(None),
+    region: Optional[str] = Query(None),
+    min_price: Optional[float] = Query(None, ge=0),
+    max_price: Optional[float] = Query(None, ge=0),
+    beds: Optional[int] = Query(None, ge=0),
+    min_roi: Optional[float] = Query(None, ge=0),
+    features: Optional[List[str]] = Query(None),
+    sort: str = Query("new"),
+    exclude_ids: Optional[List[UUID]] = Query(None),
+    include_aggregates: bool = Query(True),
+    db: Session = Depends(get_db),
+):
+    base = _apply_listing_filters(
+        db.query(Listing), purpose=purpose, type=type, region=region,
+        min_price=min_price, max_price=max_price, beds=beds, min_roi=min_roi, features=features,
+    )
+    if exclude_ids:
+        base = base.filter(~Listing.id.in_(exclude_ids))
+
+    total = base.with_entities(func.count(Listing.id)).scalar() or 0
+
+    order_by = SORT_COLUMNS.get(sort, SORT_COLUMNS["new"])()
+    items = base.order_by(order_by).offset((page - 1) * page_size).limit(page_size).all()
+
+    median_price = None
+    avg_roi = None
+    if include_aggregates:
+        sale_base = base.filter(Listing.transaction != "rent")
+        median_price = sale_base.with_entities(
+            func.percentile_cont(0.5).within_group(Listing.price.asc())
+        ).scalar()
+        avg_roi = base.filter(Listing.roi > 0).with_entities(func.avg(Listing.roi)).scalar()
+
+    return ListingPageResponse(
+        items=items,
+        total=total,
+        page=page,
+        page_size=page_size,
+        median_price=float(median_price) if median_price is not None else None,
+        avg_roi=float(avg_roi) if avg_roi is not None else None,
+    )
+
+
+def _my_listings_base_query(db: Session, user):
     Submitter = aliased(User)
     leads_subq = (
         db.query(Lead.property_id, func.count(Lead.id).label("cnt"))
@@ -80,13 +165,15 @@ def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session 
         filter_cond = or_(Listing.submitted_by == user.id, Listing.owner_id == user.id)
     else:
         filter_cond = or_(Listing.submitted_by == user.id, Listing.assigned_realtor_id == user.id)
-    rows = (
+    return (
         db.query(Listing, leads_subq.c.cnt, Submitter)
         .outerjoin(leads_subq, leads_subq.c.property_id == Listing.id)
         .outerjoin(Submitter, Submitter.id == Listing.submitted_by)
         .filter(filter_cond)
-        .all()
     )
+
+
+def _my_listings_pending_sets(db: Session, user):
     pending_deal_ids = {
         r.listing_id
         for r in db.query(DealRequest.listing_id)
@@ -99,16 +186,58 @@ def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session 
         .filter(ListingEdit.submitted_by == user.id, ListingEdit.status == "pending")
         .all()
     }
-    return [
-        ListingResponse(
-            **{c.key: getattr(l, c.key) for c in Listing.__table__.columns},
-            leads_count=cnt or 0,
-            has_pending_deal_request=l.id in pending_deal_ids,
-            has_pending_edit=l.id in pending_edit_ids,
-            submitted_by_name=submitter.display_name if submitter else None,
-        )
-        for l, cnt, submitter in rows
-    ]
+    return pending_deal_ids, pending_edit_ids
+
+
+def _to_my_listing_response(row, pending_deal_ids, pending_edit_ids) -> ListingResponse:
+    l, cnt, submitter = row
+    return ListingResponse(
+        **{c.key: getattr(l, c.key) for c in Listing.__table__.columns},
+        leads_count=cnt or 0,
+        has_pending_deal_request=l.id in pending_deal_ids,
+        has_pending_edit=l.id in pending_edit_ids,
+        submitted_by_name=submitter.display_name if submitter else None,
+    )
+
+
+@router.get("/mine", response_model=List[ListingResponse])
+def get_my_listings(user=Depends(require_role("realtor", "owner")), db: Session = Depends(get_db)):
+    rows = _my_listings_base_query(db, user).all()
+    pending_deal_ids, pending_edit_ids = _my_listings_pending_sets(db, user)
+    return [_to_my_listing_response(row, pending_deal_ids, pending_edit_ids) for row in rows]
+
+
+@router.get("/mine/page", response_model=ListingPageResponse)
+def get_my_listings_page(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=200),
+    status: Optional[str] = Query(None),
+    q: Optional[str] = Query(None),
+    pending_review: Optional[bool] = Query(None, description="Only listings with a pending deal request or edit"),
+    user=Depends(require_role("realtor", "owner")),
+    db: Session = Depends(get_db),
+):
+    """Paginated/filtered variant of GET /mine, used by the realtor/owner "My
+    Listings" tables. GET /mine itself stays unparameterized and unpaginated —
+    the home-dashboard widgets rely on it returning the complete list."""
+    query = _my_listings_base_query(db, user)
+    if status:
+        query = query.filter(Listing.status == status)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(or_(Listing.title.ilike(like), Listing.location.ilike(like)))
+
+    pending_deal_ids, pending_edit_ids = _my_listings_pending_sets(db, user)
+    if pending_review:
+        review_ids = pending_deal_ids | pending_edit_ids
+        if not review_ids:
+            return ListingPageResponse(items=[], total=0, page=page, page_size=page_size)
+        query = query.filter(Listing.id.in_(review_ids))
+
+    total = query.with_entities(func.count(Listing.id)).scalar() or 0
+    rows = query.order_by(Listing.updated_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    items = [_to_my_listing_response(row, pending_deal_ids, pending_edit_ids) for row in rows]
+    return ListingPageResponse(items=items, total=total, page=page, page_size=page_size)
 
 
 @router.get("/deal", response_model=List[ListingResponse])

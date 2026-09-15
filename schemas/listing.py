@@ -173,6 +173,26 @@ class AdminListingResponse(ListingResponse):
     model_config = {"from_attributes": True}
 
 
+class ListingPageResponse(BaseModel):
+    items: List[ListingResponse]
+    total: int
+    page: int
+    page_size: int
+    median_price: Optional[float] = None
+    avg_roi: Optional[float] = None
+
+    model_config = {"from_attributes": True}
+
+
+class AdminListingPageResponse(BaseModel):
+    items: List[AdminListingResponse]
+    total: int
+    page: int
+    page_size: int
+
+    model_config = {"from_attributes": True}
+
+
 class AdminRejectBody(BaseModel):
     reason: str
 

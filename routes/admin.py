@@ -2,7 +2,7 @@ from datetime import datetime, timezone
 from decimal import Decimal
 from fastapi import APIRouter, BackgroundTasks, Depends, File, HTTPException, Query, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, aliased
 from typing import List, Optional
 from uuid import UUID
@@ -21,7 +21,7 @@ from models.bulk_import_job import BulkImportJob
 from schemas.auth import CreateAdminUserBody
 from schemas.upgrade_request import UpgradeRequestAdminResponse, AdminRejectBody as UpgradeRejectBody
 from schemas.listing import (
-    ListingResponse, AdminListingResponse, AdminRejectBody as ListingRejectBody,
+    ListingResponse, AdminListingResponse, AdminListingPageResponse, AdminRejectBody as ListingRejectBody,
     AdminAssignListingBody, BulkImportJobResponse,
 )
 from schemas.deal_request import DealRequestResponse, DealRequestRejectBody
@@ -151,33 +151,63 @@ def reject_upgrade_request(req_id: UUID, body: UpgradeRejectBody, user=Depends(r
 
 # ── Listings ──────────────────────────────────────────────────────────────────
 
-@router.get("/listings", response_model=List[AdminListingResponse])
-def list_all_listings(status: Optional[str] = Query(None), user=Depends(require_admin), db: Session = Depends(get_db)):
+def _admin_listing_query(db: Session):
     Submitter = aliased(User)
     Reviewer  = aliased(User)
     AssignedRealtor = aliased(User)
-    q = (
+    return (
         db.query(Listing, Submitter, Reviewer, AssignedRealtor)
         .join(Submitter, Submitter.id == Listing.submitted_by)
         .outerjoin(Reviewer, Reviewer.id == Listing.approved_by)
         .outerjoin(AssignedRealtor, AssignedRealtor.id == Listing.assigned_realtor_id)
     )
+
+
+def _to_admin_listing_response(row) -> AdminListingResponse:
+    listing, submitter, reviewer, assigned_realtor = row
+    return AdminListingResponse(
+        **{c.key: getattr(listing, c.key) for c in Listing.__table__.columns},
+        submitted_by_name=submitter.display_name,
+        submitted_by_email=submitter.email,
+        reviewed_by_name=reviewer.display_name if reviewer else None,
+        reviewed_by_email=reviewer.email if reviewer else None,
+        reviewed_at=listing.approved_at,
+        assigned_realtor_name=assigned_realtor.display_name if assigned_realtor else None,
+        assigned_realtor_email=assigned_realtor.email if assigned_realtor else None,
+    )
+
+
+@router.get("/listings", response_model=AdminListingPageResponse)
+def list_all_listings(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(50, ge=1, le=500),
+    status: Optional[str] = Query(None),
+    exclude_status: Optional[str] = Query(None),
+    co_listing_enabled: Optional[bool] = Query(None),
+    is_deal: Optional[bool] = Query(None),
+    q: Optional[str] = Query(None),
+    user=Depends(require_admin), db: Session = Depends(get_db),
+):
+    query = _admin_listing_query(db)
     if status:
-        q = q.filter(Listing.status == status)
-    rows = q.order_by(Listing.created_at.desc()).all()
-    return [
-        AdminListingResponse(
-            **{c.key: getattr(listing, c.key) for c in Listing.__table__.columns},
-            submitted_by_name=submitter.display_name,
-            submitted_by_email=submitter.email,
-            reviewed_by_name=reviewer.display_name if reviewer else None,
-            reviewed_by_email=reviewer.email if reviewer else None,
-            reviewed_at=listing.approved_at,
-            assigned_realtor_name=assigned_realtor.display_name if assigned_realtor else None,
-            assigned_realtor_email=assigned_realtor.email if assigned_realtor else None,
-        )
-        for listing, submitter, reviewer, assigned_realtor in rows
-    ]
+        query = query.filter(Listing.status == status)
+    if exclude_status:
+        query = query.filter(Listing.status != exclude_status)
+    if co_listing_enabled is not None:
+        query = query.filter(Listing.co_listing_enabled == co_listing_enabled)
+    if is_deal is not None:
+        query = query.filter(Listing.is_deal == is_deal)
+    if q:
+        like = f"%{q}%"
+        query = query.filter(or_(Listing.title.ilike(like), Listing.location.ilike(like)))
+
+    total = query.with_entities(func.count(Listing.id)).scalar() or 0
+    rows = query.order_by(Listing.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
+
+    return AdminListingPageResponse(
+        items=[_to_admin_listing_response(row) for row in rows],
+        total=total, page=page, page_size=page_size,
+    )
 
 
 @router.put("/listings/{listing_id}/assign", status_code=204)
@@ -234,6 +264,14 @@ def get_bulk_import_job(job_id: UUID, user=Depends(require_admin), db: Session =
     if not job:
         raise HTTPException(status_code=404, detail="Import job not found")
     return job
+
+
+@router.get("/listings/{listing_id}", response_model=AdminListingResponse)
+def get_admin_listing(listing_id: UUID, user=Depends(require_admin), db: Session = Depends(get_db)):
+    row = _admin_listing_query(db).filter(Listing.id == listing_id).first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Listing not found")
+    return _to_admin_listing_response(row)
 
 
 @router.post("/listings/{listing_id}/approve", status_code=204)
@@ -576,12 +614,16 @@ def change_user_role(user_id: str, body: ChangeRoleBody, admin=Depends(require_a
 
 @router.get("/stats")
 def get_admin_stats(user=Depends(require_admin), db: Session = Depends(get_db)):
-    active_listings  = db.query(func.count(Listing.id)).filter(Listing.status == "active").scalar() or 0
-    pending_listings = db.query(func.count(Listing.id)).filter(Listing.status == "pending_approval").scalar() or 0
-    total_users      = db.query(func.count(User.id)).scalar() or 0
+    active_listings   = db.query(func.count(Listing.id)).filter(Listing.status == "active").scalar() or 0
+    pending_listings  = db.query(func.count(Listing.id)).filter(Listing.status == "pending_approval").scalar() or 0
+    archived_listings = db.query(func.count(Listing.id)).filter(Listing.status == "archived").scalar() or 0
+    rejected_listings = db.query(func.count(Listing.id)).filter(Listing.status == "rejected").scalar() or 0
+    total_users       = db.query(func.count(User.id)).scalar() or 0
     return {
         "active_listings": active_listings,
         "pending_listings": pending_listings,
+        "archived_listings": archived_listings,
+        "rejected_listings": rejected_listings,
         "total_users": total_users,
     }
 
