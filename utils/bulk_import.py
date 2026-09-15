@@ -234,9 +234,12 @@ def _import_row(db: Session, row: dict, admin_user_id) -> dict:
             logger.exception("Bulk import: failed to upload photo for source_ref %s", source_ref)
             warnings.append(f"photo failed to upload: {url}")
 
+    external_agent_email = (row.get("external_agent_email") or "").strip() or None
+
     listing = Listing(
         title=title,
         description=(row.get("description_en") or "").strip() or None,
+        description_es=(row.get("description_es") or "").strip() or None,
         type=property_type,
         transaction=purpose,
         price=price,
@@ -254,7 +257,11 @@ def _import_row(db: Session, row: dict, admin_user_id) -> dict:
         co_listing_enabled=co_listing_enabled,
         co_listing_brokerage=(row.get("external_brokerage") or "").strip() or None,
         co_listing_agent_name=(row.get("external_agent_name") or "").strip() or None,
-        co_listing_agent_email=(row.get("external_agent_email") or "").strip() or None,
+        # co_listing_agent_contact is the field the dashboard actually displays
+        # ("Agent Contact"); co_listing_agent_email is kept in sync alongside it
+        # for anything that later wants the email specifically.
+        co_listing_agent_contact=external_agent_email,
+        co_listing_agent_email=external_agent_email,
         co_listing_commission_split=_parse_decimal(row.get("commission_split_pct")),
         co_listing_notes=(row.get("co_listing_notes") or "").strip() or None,
         co_listing_status=(row.get("co_listing_status") or "").strip() or None,

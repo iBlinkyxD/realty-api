@@ -336,7 +336,7 @@ def bulk_regenerate_share_images(
 # ── Listing Edits ─────────────────────────────────────────────────────────────
 
 EDIT_FIELDS = [
-    "title", "description", "type", "transaction", "price", "location",
+    "title", "description", "description_es", "type", "transaction", "price", "location",
     "bedrooms", "bathrooms", "area_sqft", "lot_size_sqft", "roi",
     "seller_financing", "hoa", "hoa_fee", "tax_exempt", "gated_community",
     "construction_status", "year_built", "features", "maps_url",
@@ -344,7 +344,7 @@ EDIT_FIELDS = [
     "tags", "video_links", "tour_3d_url", "utilities", "included_utilities",
     "association_fee", "deposit_policy",
     "co_listing_enabled", "co_listing_brokerage", "co_listing_agent_name",
-    "co_listing_agent_contact", "co_listing_commission_split",
+    "co_listing_agent_contact", "co_listing_agent_email", "co_listing_commission_split",
     "co_listing_notes", "co_listing_status",
 ]
 

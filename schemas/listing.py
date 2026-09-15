@@ -10,6 +10,7 @@ Bathrooms = Annotated[float, Field(ge=0, multiple_of=0.5)]
 class ListingCreate(BaseModel):
     title: str
     description: Optional[str] = None
+    description_es: Optional[str] = None
     type: str
     transaction: str
     price: Decimal
@@ -54,6 +55,7 @@ class ListingCreate(BaseModel):
 class ListingUpdate(BaseModel):
     title: Optional[str] = None
     description: Optional[str] = None
+    description_es: Optional[str] = None
     type: Optional[str] = None
     transaction: Optional[str] = None
     price: Optional[Decimal] = None
@@ -98,6 +100,7 @@ class ListingResponse(BaseModel):
     id: uuid.UUID
     title: str
     description: Optional[str]
+    description_es: Optional[str] = None
     type: str
     transaction: str
     price: Decimal

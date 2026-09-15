@@ -14,6 +14,7 @@ class Listing(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(Text, nullable=False)
     description = Column(Text)
+    description_es = Column(Text)
     type = Column(listing_type, nullable=False)
     transaction = Column(transaction_type, nullable=False)
     price = Column(Numeric(12, 2), nullable=False)
