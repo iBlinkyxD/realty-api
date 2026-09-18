@@ -15,10 +15,11 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column('bookings', sa.Column('platform_fee', sa.Numeric(12, 2), nullable=True))
-    op.add_column('bookings', sa.Column('payout_amount', sa.Numeric(12, 2), nullable=True))
+    # Idempotent: production already has these columns (applied outside Alembic).
+    op.add_column('bookings', sa.Column('platform_fee', sa.Numeric(12, 2), nullable=True), if_not_exists=True)
+    op.add_column('bookings', sa.Column('payout_amount', sa.Numeric(12, 2), nullable=True), if_not_exists=True)
 
 
 def downgrade():
-    op.drop_column('bookings', 'payout_amount')
-    op.drop_column('bookings', 'platform_fee')
+    op.drop_column('bookings', 'payout_amount', if_exists=True)
+    op.drop_column('bookings', 'platform_fee', if_exists=True)

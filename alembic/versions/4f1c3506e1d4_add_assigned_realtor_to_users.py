@@ -14,18 +14,15 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column(
-        'users',
-        sa.Column(
-            'assigned_realtor_id',
-            sa.dialects.postgresql.UUID(as_uuid=True),
-            sa.ForeignKey('users.id', ondelete='SET NULL'),
-            nullable=True,
-        ),
+    # Idempotent: production already has this column (applied outside Alembic). Raw SQL so the
+    # foreign key is created together with the column and skipped with it when it already exists.
+    op.execute(
+        "ALTER TABLE users ADD COLUMN IF NOT EXISTS assigned_realtor_id UUID "
+        "REFERENCES users(id) ON DELETE SET NULL"
     )
     op.execute("CREATE INDEX IF NOT EXISTS ix_users_assigned_realtor_id ON users (assigned_realtor_id)")
 
 
 def downgrade():
-    op.drop_index('ix_users_assigned_realtor_id', table_name='users')
-    op.drop_column('users', 'assigned_realtor_id')
+    op.drop_index('ix_users_assigned_realtor_id', table_name='users', if_exists=True)
+    op.drop_column('users', 'assigned_realtor_id', if_exists=True)

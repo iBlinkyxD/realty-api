@@ -14,8 +14,9 @@ depends_on = None
 
 
 def upgrade() -> None:
-    op.add_column('users', sa.Column('paypal_email', sa.Text(), nullable=True))
+    # Idempotent: production already has this column (applied outside Alembic).
+    op.add_column('users', sa.Column('paypal_email', sa.Text(), nullable=True), if_not_exists=True)
 
 
 def downgrade() -> None:
-    op.drop_column('users', 'paypal_email')
+    op.drop_column('users', 'paypal_email', if_exists=True)

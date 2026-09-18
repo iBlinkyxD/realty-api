@@ -17,10 +17,11 @@ depends_on = None
 
 
 def upgrade():
-    op.add_column('listings', sa.Column('co_listing_brokerage_email', sa.Text(), nullable=True))
-    op.add_column('listings', sa.Column('co_listing_brokerage_phone', sa.Text(), nullable=True))
+    # Idempotent: production already has these columns (applied outside Alembic).
+    op.add_column('listings', sa.Column('co_listing_brokerage_email', sa.Text(), nullable=True), if_not_exists=True)
+    op.add_column('listings', sa.Column('co_listing_brokerage_phone', sa.Text(), nullable=True), if_not_exists=True)
 
 
 def downgrade():
-    op.drop_column('listings', 'co_listing_brokerage_phone')
-    op.drop_column('listings', 'co_listing_brokerage_email')
+    op.drop_column('listings', 'co_listing_brokerage_phone', if_exists=True)
+    op.drop_column('listings', 'co_listing_brokerage_email', if_exists=True)
