@@ -45,11 +45,18 @@ class ListingCreate(BaseModel):
     co_listing_agent_name: Optional[str] = None
     co_listing_agent_contact: Optional[str] = None
     co_listing_agent_email: Optional[str] = None
+    co_listing_brokerage_email: Optional[str] = None
+    co_listing_brokerage_phone: Optional[str] = None
     co_listing_commission_split: Optional[Decimal] = None
     co_listing_notes: Optional[str] = None
     co_listing_status: Optional[str] = None
     currency: Optional[str] = None
     source_ref: Optional[str] = None
+    price_per_day: Optional[Decimal] = None
+    price_per_month: Optional[Decimal] = None
+    owner_paypal_email: Optional[str] = None
+    co_listing_agreement_accepted: bool = False
+    co_listing_agreement_url: Optional[str] = None
 
 
 class ListingUpdate(BaseModel):
@@ -90,10 +97,17 @@ class ListingUpdate(BaseModel):
     co_listing_agent_name: Optional[str] = None
     co_listing_agent_contact: Optional[str] = None
     co_listing_agent_email: Optional[str] = None
+    co_listing_brokerage_email: Optional[str] = None
+    co_listing_brokerage_phone: Optional[str] = None
     co_listing_commission_split: Optional[Decimal] = None
     co_listing_notes: Optional[str] = None
     co_listing_status: Optional[str] = None
     currency: Optional[str] = None
+    price_per_day: Optional[Decimal] = None
+    price_per_month: Optional[Decimal] = None
+    owner_paypal_email: Optional[str] = None
+    co_listing_agreement_accepted: Optional[bool] = None
+    co_listing_agreement_url: Optional[str] = None
 
 
 class ListingResponse(BaseModel):
@@ -142,11 +156,18 @@ class ListingResponse(BaseModel):
     co_listing_agent_name: Optional[str] = None
     co_listing_agent_contact: Optional[str] = None
     co_listing_agent_email: Optional[str] = None
+    co_listing_brokerage_email: Optional[str] = None
+    co_listing_brokerage_phone: Optional[str] = None
     co_listing_commission_split: Optional[Decimal] = None
     co_listing_notes: Optional[str] = None
     co_listing_status: Optional[str] = None
     currency: str = "USD"
     source_ref: Optional[str] = None
+    price_per_day: Optional[Decimal] = None
+    price_per_month: Optional[Decimal] = None
+    owner_paypal_email: Optional[str] = None
+    co_listing_agreement_accepted: bool = False
+    co_listing_agreement_url: Optional[str] = None
     leads_count: int = 0
     has_pending_deal_request: bool = False
     has_pending_edit: bool = False

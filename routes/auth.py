@@ -189,6 +189,8 @@ def me(user: User = Depends(get_current_user)):
         "display_name": user.display_name,
         "phone": user.phone,
         "avatar_url": user.avatar_url,
+        "calendly_url": user.calendly_url,
+        "paypal_email": user.paypal_email,
         "has_password": user.password_hash is not None,
         "has_google": user.google_id is not None,
     }
@@ -228,9 +230,11 @@ async def upload_user_avatar(
 def update_profile(request: Request, body: UpdateProfileRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     user.display_name = body.display_name.strip()
     user.phone = body.phone.strip() if body.phone else None
+    user.calendly_url = body.calendly_url.strip() if body.calendly_url else None
+    user.paypal_email = body.paypal_email.strip() if body.paypal_email else None
     db.commit()
     db.refresh(user)
-    return {"display_name": user.display_name, "phone": user.phone}
+    return {"display_name": user.display_name, "phone": user.phone, "calendly_url": user.calendly_url}
 
 
 @router.put("/password")
@@ -367,23 +371,25 @@ def refresh_token(response: Response, user: User = Depends(get_current_user)):
 
 @router.get("/me/agent")
 def get_my_agent(user=Depends(get_current_user), db: Session = Depends(get_db)):
-    """Returns the realtor assigned to the current owner via their seller_interest lead."""
-    _none = {"realtor_id": None, "realtor_name": None, "realtor_email": None, "realtor_phone": None}
+    """Returns the realtor assigned to the current owner (direct assignment takes priority, falls back to lead)."""
+    _none = {"realtor_id": None, "realtor_name": None, "realtor_email": None, "realtor_phone": None, "realtor_calendly_url": None}
     if user.role != "owner":
         return _none
-    lead = (
-        db.query(Lead)
-        .filter(
-            Lead.from_user_id == user.id,
-            Lead.type == "seller_interest",
-            Lead.assigned_realtor_id.isnot(None),
+    # Direct assignment (set by admin or auto-set when a lead is assigned)
+    realtor_id = user.assigned_realtor_id
+    if not realtor_id:
+        # Fallback: most recent lead from this user that has a realtor assigned
+        lead = (
+            db.query(Lead)
+            .filter(Lead.from_user_id == user.id, Lead.assigned_realtor_id.isnot(None))
+            .order_by(Lead.created_at.desc())
+            .first()
         )
-        .order_by(Lead.created_at.desc())
-        .first()
-    )
-    if not lead:
+        if lead:
+            realtor_id = lead.assigned_realtor_id
+    if not realtor_id:
         return _none
-    realtor = db.query(User).filter(User.id == lead.assigned_realtor_id).first()
+    realtor = db.query(User).filter(User.id == realtor_id).first()
     if not realtor:
         return _none
     return {
@@ -391,6 +397,7 @@ def get_my_agent(user=Depends(get_current_user), db: Session = Depends(get_db)):
         "realtor_name": realtor.display_name or realtor.email,
         "realtor_email": realtor.email,
         "realtor_phone": realtor.phone,
+        "realtor_calendly_url": realtor.calendly_url,
     }
 
 

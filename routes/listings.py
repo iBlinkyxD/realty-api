@@ -21,7 +21,7 @@ from schemas.listing import ListingCreate, ListingUpdate, ListingResponse, Listi
 from schemas.deal_request import DealRequestCreate
 from utils.auth import get_current_user
 from utils.permission import require_role
-from utils.storage import upload_image
+from utils.storage import upload_image, upload_pdf
 from utils.share_image import generate_share_image, maybe_regenerate_share_image
 from utils.limiter import limiter
 
@@ -38,7 +38,7 @@ MAX_FILES = 25
 async def upload_images(
     request: Request,
     files: List[UploadFile] = File(...),
-    user=Depends(require_role("realtor", "admin")),
+    user=Depends(require_role("realtor", "admin", "owner")),
 ):
     if len(files) > MAX_FILES:
         raise HTTPException(status_code=400, detail=f"Maximum {MAX_FILES} images allowed")
@@ -67,6 +67,26 @@ SORT_COLUMNS = {
     "high": lambda: Listing.price.desc(),
     "roi":  lambda: Listing.roi.desc(),
 }
+
+
+@router.post("/upload-agreement")
+@limiter.limit("10/minute")
+async def upload_agreement(
+    request: Request,
+    file: UploadFile = File(...),
+    user=Depends(require_role("realtor", "admin")),
+):
+    data = await file.read()
+    if len(data) > 10 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Agreement PDF must be under 10 MB")
+    if not file.filename or not file.filename.lower().endswith(".pdf"):
+        raise HTTPException(status_code=415, detail="Only PDF files are accepted")
+    try:
+        url = upload_pdf(data, str(user.id))
+    except Exception:
+        logger.exception("PDF upload failed for user %s", user.id)
+        raise HTTPException(status_code=500, detail="PDF upload failed. Please try again.")
+    return {"url": url}
 
 
 def _apply_listing_filters(
@@ -246,11 +266,17 @@ def get_deal_listings(db: Session = Depends(get_db)):
 
 
 @router.post("", response_model=ListingResponse, status_code=201)
-def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "admin")), db: Session = Depends(get_db)):
+def create_listing(body: ListingCreate, user=Depends(require_role("realtor", "admin", "owner")), db: Session = Depends(get_db)):
+    if user.role == "owner" and body.transaction != "rent":
+        raise HTTPException(status_code=422, detail="Owners may only submit rental listings.")
+    extra: dict = {}
+    if user.role == "owner":
+        extra["owner_id"] = user.id
     listing = Listing(
         **body.model_dump(),
         submitted_by=user.id,
         status="active" if user.role == "admin" else "pending_approval",
+        **extra,
     )
     db.add(listing)
     db.flush()  # get listing.id before commit
@@ -336,6 +362,10 @@ def update_listing(listing_id: UUID, body: ListingUpdate, user=Depends(get_curre
 
     if listing.submitted_by != user.id and listing.assigned_realtor_id != user.id and user.role != "admin":
         raise HTTPException(status_code=403, detail="Insufficient permissions")
+
+    update_data = body.model_dump(exclude_unset=True)
+    if user.role == "owner" and update_data.get("transaction") and update_data["transaction"] != "rent":
+        raise HTTPException(status_code=422, detail="Owners may only submit rental listings.")
 
     # Active listings edited by realtors go into a pending-edit queue instead of
     # updating in place so the live listing is not disrupted until admin approves.

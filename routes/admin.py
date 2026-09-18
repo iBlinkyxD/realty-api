@@ -7,6 +7,9 @@ from sqlalchemy.orm import Session, aliased
 from typing import List, Optional
 from uuid import UUID
 
+from models.booking import Booking
+from schemas.booking import BookingResponse
+
 from config import settings
 from database import get_db, SessionLocal
 from models.activity_log import ActivityLog
@@ -382,7 +385,8 @@ EDIT_FIELDS = [
     "tags", "video_links", "tour_3d_url", "utilities", "included_utilities",
     "association_fee", "deposit_policy",
     "co_listing_enabled", "co_listing_brokerage", "co_listing_agent_name",
-    "co_listing_agent_contact", "co_listing_agent_email", "co_listing_commission_split",
+    "co_listing_agent_contact", "co_listing_agent_email",
+    "co_listing_brokerage_email", "co_listing_brokerage_phone", "co_listing_commission_split",
     "co_listing_notes", "co_listing_status",
 ]
 
@@ -524,19 +528,23 @@ def list_users(role: Optional[str] = Query(None), status: Optional[str] = Query(
         raise HTTPException(status_code=422, detail="Invalid role")
     if status and status not in _VALID_STATUSES:
         raise HTTPException(status_code=422, detail="Invalid status")
-    q = db.query(User)
+    Realtor = aliased(User)
+    q = db.query(User, Realtor).outerjoin(Realtor, Realtor.id == User.assigned_realtor_id)
     if role:
         q = q.filter(User.role == role)
     if status:
         q = q.filter(User.status == status)
+    rows = q.order_by(User.created_at.desc()).all()
     return [
         {
             "id": str(u.id), "user_code": u.user_code,
             "email": u.email, "role": u.role, "status": u.status,
             "display_name": u.display_name, "phone": u.phone,
             "created_at": u.created_at, "avatar_url": u.avatar_url,
+            "assigned_realtor_id": str(u.assigned_realtor_id) if u.assigned_realtor_id else None,
+            "assigned_realtor_name": (r.display_name or r.email) if r else None,
         }
-        for u in q.order_by(User.created_at.desc()).all()
+        for u, r in rows
     ]
 
 
@@ -592,6 +600,28 @@ _CHANGEABLE_ROLES = {"buyer", "owner", "realtor"}
 
 class ChangeRoleBody(BaseModel):
     role: str
+
+class AssignRealtorBody(BaseModel):
+    realtor_id: Optional[str] = None
+
+@router.put("/users/{user_id}/assign-realtor", status_code=204)
+def assign_realtor_to_owner(user_id: str, body: AssignRealtorBody, admin=Depends(require_admin), db: Session = Depends(get_db)):
+    target = db.query(User).filter(User.id == UUID(user_id)).first()
+    if not target:
+        raise HTTPException(status_code=404, detail="User not found")
+    if target.role != "owner":
+        raise HTTPException(status_code=400, detail="Can only assign a realtor to an Owner account")
+    if body.realtor_id:
+        realtor = db.query(User).filter(User.id == UUID(body.realtor_id), User.role == "realtor").first()
+        if not realtor:
+            raise HTTPException(status_code=404, detail="Realtor not found")
+        target.assigned_realtor_id = realtor.id
+        _log(db, "realtor_assigned", f"Realtor {realtor.display_name or realtor.email} assigned to owner {target.display_name or target.email}", actor_id=admin.id)
+    else:
+        target.assigned_realtor_id = None
+        _log(db, "realtor_unassigned", f"Realtor unassigned from owner {target.display_name or target.email}", actor_id=admin.id)
+    db.commit()
+
 
 @router.put("/users/{user_id}/role", status_code=204)
 def change_user_role(user_id: str, body: ChangeRoleBody, admin=Depends(require_admin), db: Session = Depends(get_db)):
@@ -787,4 +817,48 @@ def get_activity_log(limit: int = Query(20, le=50), user=Depends(require_admin),
             "created_at": e.created_at,
         }
         for e in entries
+    ]
+
+
+@router.get("/bookings", response_model=List[BookingResponse])
+def get_all_bookings(
+    user=Depends(require_admin),
+    db: Session = Depends(get_db),
+):
+    """Admin-only: all bookings across all listings, newest check-out first."""
+    Owner = aliased(User)
+    rows = (
+        db.query(Booking, Listing, User, Owner)
+        .join(Listing, Listing.id == Booking.listing_id)
+        .outerjoin(User, User.id == Booking.buyer_id)
+        .outerjoin(Owner, Owner.id == Listing.owner_id)
+        .order_by(Booking.created_at.desc())
+        .all()
+    )
+    return [
+        BookingResponse(
+            id=str(b.id),
+            listing_id=str(b.listing_id),
+            listing_title=listing.title,
+            listing_location=listing.location,
+            listing_images=listing.images or [],
+            check_in=str(b.check_in),
+            check_out=str(b.check_out),
+            guests=b.guests,
+            total_price=float(b.total_price) if b.total_price else None,
+            notes=b.notes,
+            status=b.status,
+            created_at=b.created_at,
+            guest_name=guest.display_name if guest else b.guest_name,
+            guest_email=guest.email if guest else b.guest_email,
+            guest_phone=guest.phone if guest else None,
+            ghl_contact_url=None,
+            payment_status=b.payment_status,
+            payout_status=b.payout_status,
+            booked_price_per_day=float(b.booked_price_per_day) if b.booked_price_per_day else None,
+            platform_fee=float(b.platform_fee) if b.platform_fee else None,
+            payout_amount=float(b.payout_amount) if b.payout_amount else None,
+            owner_name=owner.display_name if owner else None,
+        )
+        for b, listing, guest, owner in rows
     ]
