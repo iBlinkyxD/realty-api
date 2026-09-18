@@ -121,33 +121,66 @@ def _booking_response(
     )
 
 
+def _blocked_ranges(
+    db: Session,
+    listing_id,
+    exclude_booking_id=None,
+    exclude_lead_id=None,
+) -> list[tuple[str, str]]:
+    """(check_in, check_out) ISO ranges already committed on a listing.
+
+    A stay is committed once the owner accepts it: a confirmed Booking row, or an
+    accepted (status "closed") guest-request Lead that has no Booking row of its own.
+    Leads linked to a Booking row are skipped so the Booking's status stays the
+    single source of truth (a cancelled booking must free its dates even if the
+    lead was later closed from GHL).
+    """
+    bq = db.query(Booking.check_in, Booking.check_out).filter(
+        Booking.listing_id == listing_id, Booking.status == "confirmed"
+    )
+    if exclude_booking_id:
+        bq = bq.filter(Booking.id != exclude_booking_id)
+    ranges = [(str(ci), str(co)) for ci, co in bq.all()]
+
+    linked_lead_ids = db.query(Booking.lead_id).filter(Booking.lead_id.isnot(None))
+    lq = db.query(Lead).filter(
+        Lead.type == "booking",
+        Lead.property_id == listing_id,
+        Lead.status == "closed",
+        ~Lead.id.in_(linked_lead_ids),
+    )
+    if exclude_lead_id:
+        lq = lq.filter(Lead.id != exclude_lead_id)
+    for lead in lq.all():
+        m = _DATE_RANGE_RE.search(lead.message or "")
+        if m:
+            ranges.append((m.group(1), m.group(2)))
+    return ranges
+
+
+def _dates_available(db: Session, listing_id, check_in, check_out, **exclude) -> bool:
+    """True if [check_in, check_out) overlaps no committed stay.
+
+    Ranges are half-open, so a guest may check in on the day another checks out.
+    ISO date strings compare correctly as text.
+    """
+    ci, co = str(check_in), str(check_out)
+    return not any(ci < b_out and co > b_in for b_in, b_out in _blocked_ranges(db, listing_id, **exclude))
+
+
+def _lock_listing(db: Session, listing_id) -> None:
+    """Serialize accept decisions per listing so two concurrent accepts of
+    overlapping requests can't both pass the availability check."""
+    db.query(Listing).filter(Listing.id == listing_id).with_for_update().first()
+
+
+DATES_TAKEN_MSG = "Those dates are no longer available for this listing"
+
+
 @router.get("/unavailable/{listing_id}")
 def get_unavailable_dates(listing_id: UUID, db: Session = Depends(get_db)):
-    """Public — returns check-in/check-out ranges for all confirmed bookings on a listing."""
-    ranges = []
-
-    # Lead-only records (guest, no platform account) — accepted via lead.status == "closed"
-    leads = (
-        db.query(Lead)
-        .filter(Lead.type == "booking", Lead.property_id == listing_id, Lead.status == "closed")
-        .all()
-    )
-    for lead in leads:
-        if lead.message:
-            m = _DATE_RANGE_RE.search(lead.message)
-            if m:
-                ranges.append({"check_in": m.group(1), "check_out": m.group(2)})
-
-    # Platform bookings (Booking row) — accepted via booking.status == "confirmed"
-    bookings = (
-        db.query(Booking)
-        .filter(Booking.listing_id == listing_id, Booking.status == "confirmed")
-        .all()
-    )
-    for b in bookings:
-        ranges.append({"check_in": str(b.check_in), "check_out": str(b.check_out)})
-
-    return ranges
+    """Public — returns check-in/check-out ranges already committed on a listing."""
+    return [{"check_in": ci, "check_out": co} for ci, co in _blocked_ranges(db, listing_id)]
 
 
 @router.post("/create-payment-auth", response_model=CreatePaymentAuthResponse)
@@ -170,6 +203,9 @@ def create_payment_auth(body: CreatePaymentAuthRequest, db: Session = Depends(ge
     nights = (body.check_out - body.check_in).days
     if nights <= 0:
         raise HTTPException(status_code=400, detail="check_out must be after check_in")
+    # Don't open a PayPal order for dates that can no longer be booked
+    if not _dates_available(db, body.listing_id, body.check_in, body.check_out):
+        raise HTTPException(status_code=409, detail=DATES_TAKEN_MSG)
 
     amount_usd = float(listing.price_per_day) * nights
     result = paypal.create_order(amount_usd, str(body.listing_id))
@@ -187,6 +223,9 @@ def create_booking(
         raise HTTPException(status_code=404, detail="Listing not found")
     if listing.transaction != "rent":
         raise HTTPException(status_code=400, detail="Bookings are only for rental listings")
+    # Reject before anything is created or any payment is authorized
+    if not _dates_available(db, body.listing_id, body.check_in, body.check_out):
+        raise HTTPException(status_code=409, detail=DATES_TAKEN_MSG)
 
     # Resolve contact info — use account data for logged-in users, body fields for guests
     if user:
@@ -490,6 +529,10 @@ def accept_booking(booking_id: UUID, user=Depends(get_current_user), db: Session
         b, listing = row
         if b.status != "pending":
             raise HTTPException(status_code=400, detail="Only pending bookings can be accepted")
+        # Lock + re-check before capturing payment: another request may have been accepted since this one was made
+        _lock_listing(db, b.listing_id)
+        if not _dates_available(db, b.listing_id, b.check_in, b.check_out, exclude_booking_id=b.id):
+            raise HTTPException(status_code=409, detail=DATES_TAKEN_MSG)
         if b.payment_status == "authorized" and b.paypal_authorization_id and settings.paypal_client_id:
             try:
                 result = paypal.capture_authorization(b.paypal_authorization_id)
@@ -529,6 +572,11 @@ def accept_booking(booking_id: UUID, user=Depends(get_current_user), db: Session
         raise HTTPException(status_code=404, detail="Booking not found")
     if lead.status == "closed":
         raise HTTPException(status_code=400, detail="Only pending bookings can be accepted")
+    m = _DATE_RANGE_RE.search(lead.message or "")
+    if m:
+        _lock_listing(db, listing.id)
+        if not _dates_available(db, listing.id, m.group(1), m.group(2), exclude_lead_id=lead.id):
+            raise HTTPException(status_code=409, detail=DATES_TAKEN_MSG)
     lead.status = "closed"
     db.commit()
     try:
