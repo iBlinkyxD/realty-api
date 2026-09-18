@@ -8,6 +8,8 @@ from typing import List, Optional
 from uuid import UUID
 
 from models.booking import Booking
+from models.lead import Lead
+from routes.bookings import _lead_to_booking_response
 from schemas.booking import BookingResponse
 
 from config import settings
@@ -825,7 +827,12 @@ def get_all_bookings(
     user=Depends(require_admin),
     db: Session = Depends(get_db),
 ):
-    """Admin-only: all bookings across all listings, newest check-out first."""
+    """Admin-only: all bookings across all listings, newest request first.
+
+    Includes guest requests that only exist as a booking Lead (a logged-out visitor
+    who didn't pay through PayPal has no Booking row), so the totals match what
+    owners see in their own Guest Bookings queue.
+    """
     Owner = aliased(User)
     rows = (
         db.query(Booking, Listing, User, Owner)
@@ -835,7 +842,7 @@ def get_all_bookings(
         .order_by(Booking.created_at.desc())
         .all()
     )
-    return [
+    results = [
         BookingResponse(
             id=str(b.id),
             listing_id=str(b.listing_id),
@@ -862,3 +869,26 @@ def get_all_bookings(
         )
         for b, listing, guest, owner in rows
     ]
+
+    # Lead-only guest requests. Same rules as the owner endpoint: skip leads from logged-in
+    # users (they have a Booking row) and leads already backed by a Booking row via lead_id.
+    linked_lead_ids = db.query(Booking.lead_id).filter(Booking.lead_id.isnot(None))
+    lead_rows = (
+        db.query(Lead, Listing, Owner)
+        .join(Listing, Listing.id == Lead.property_id)
+        .outerjoin(Owner, Owner.id == Listing.owner_id)
+        .filter(
+            Lead.type == "booking",
+            Lead.from_user_id.is_(None),
+            ~Lead.id.in_(linked_lead_ids),
+        )
+        .all()
+    )
+    for lead, listing, owner in lead_rows:
+        resp = _lead_to_booking_response(lead, listing)
+        if resp:
+            resp.owner_name = owner.display_name if owner else None
+            results.append(resp)
+
+    results.sort(key=lambda r: r.created_at, reverse=True)
+    return results
