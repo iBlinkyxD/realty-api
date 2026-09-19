@@ -1,8 +1,14 @@
 from html import escape
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from config import settings
 
 CODE_EXPIRE_MINUTES = 15
+
+
+def _is_google_scheduling_url(url: str | None) -> bool:
+    """User.calendly_url holds either a Calendly or a Google Calendar booking link; tell them apart by host."""
+    host = urlparse(url or "").hostname or ""
+    return host in ("calendar.app.google", "calendar.google.com")
 
 
 def _send(to_email: str, subject: str, html: str) -> None:
@@ -219,16 +225,17 @@ def send_realtor_lead_assigned_email(
         </td></tr>
       </table>
     """
+    scheduling_label = "Google Calendar" if _is_google_scheduling_url(calendly_url) else "Calendly"
     calendly_block = f"""
 <table cellpadding="0" cellspacing="0" style="margin-bottom:16px">
   <tr><td>
-    <a href="{calendly_url}" style="display:inline-block;background:#006BFF;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 26px;border-radius:8px">
+    <a href="{escape(calendly_url or '')}" style="display:inline-block;background:#006BFF;color:#ffffff;text-decoration:none;font-weight:700;font-size:14px;padding:11px 26px;border-radius:8px">
       Schedule a Meeting &#8594;
     </a>
   </td></tr>
 </table>
 <p style="margin:0 0 20px;color:#888;font-size:12.5px;line-height:1.6">
-  Use your Calendly link above to schedule a meeting with this lead.
+  Use your {scheduling_label} link above to schedule a meeting with this lead.
 </p>
 """ if calendly_url else ""
     body = body + calendly_block
